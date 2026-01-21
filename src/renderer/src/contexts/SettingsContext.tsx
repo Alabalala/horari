@@ -192,7 +192,10 @@ const translations = {
     owed: 'Debido',
     generatedOn: 'Generado el',
     exportSchedule: 'Exportar horario',
-    schedule: 'Horario'
+    schedule: 'Horario',
+    totalStaff: 'Personal total',
+    print: 'Imprimir',
+    printSchedule: 'Imprimir horario'
   }
 }
 

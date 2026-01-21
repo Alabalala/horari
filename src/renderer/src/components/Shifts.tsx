@@ -966,6 +966,16 @@ export default function Shifts(): React.JSX.Element {
         />
       )}
 
+      {isPrintWeeklyModalOpen && (
+        <PrintWeeklyScheduleModal
+            isOpen={isPrintWeeklyModalOpen}
+            onClose={() => setIsPrintWeeklyModalOpen(false)}
+            currentDate={currentDate}
+            employees={employees}
+            shifts={shifts}
+        />
+      )}
+
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">

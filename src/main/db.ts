@@ -1,0 +1,231 @@
+import Database from 'better-sqlite3'
+import { app } from 'electron'
+import { join } from 'path'
+
+const dbPath = join(app.getPath('userData'), 'horari.db')
+console.log('Database path:', dbPath)
+const db = new Database(dbPath)
+
+db.pragma('journal_mode = WAL')
+
+export type Employee = {
+  id?: number
+  name: string
+  role: string
+  department: string
+  status: 'Active' | 'Inactive' | 'On Leave'
+  defaultHours: number
+  displayOrder: number
+}
+
+export type Shift = {
+  id?: number
+  employeeId: number
+  startTime: string // ISO string
+  endTime: string // ISO string
+}
+
+export type MonthlyHours = {
+  id?: number
+  employeeId: number
+  month: string // YYYY-MM
+  hours: number
+}
+
+// Initialize tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS employees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    department TEXT NOT NULL,
+    status TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS shifts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employeeId INTEGER NOT NULL,
+    startTime TEXT NOT NULL,
+    endTime TEXT NOT NULL,
+    FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  
+  CREATE TABLE IF NOT EXISTS monthly_hours (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employeeId INTEGER NOT NULL,
+    month TEXT NOT NULL,
+    hours REAL NOT NULL,
+    FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE,
+    UNIQUE(employeeId, month)
+  );
+`)
+
+try {
+  db.exec('ALTER TABLE employees ADD COLUMN defaultHours REAL DEFAULT 160')
+} catch (error) {
+  // Column likely exists
+}
+
+try {
+  db.exec('ALTER TABLE employees ADD COLUMN displayOrder INTEGER DEFAULT 0')
+} catch (error) {
+  // Column likely exists
+}
+
+// Initialize default settings if they don't exist
+const defaultSettings = {
+  language: 'en',
+  theme: 'dark',
+  companyName: 'My Company',
+  openingTime: '08:00',
+  closingTime: '20:00'
+}
+
+const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
+Object.entries(defaultSettings).forEach(([key, value]) => {
+  insertSetting.run(key, value)
+})
+
+export type Setting = {
+  key: string
+  value: string
+}
+
+export function getSettings(): Record<string, string> {
+  const rows = db.prepare('SELECT * FROM settings').all() as Setting[]
+  return rows.reduce(
+    (acc, row) => {
+      acc[row.key] = row.value
+      return acc
+    },
+    {} as Record<string, string>
+  )
+}
+
+export function updateSetting(key: string, value: string): Database.RunResult {
+  const stmt = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+  return stmt.run(key, value)
+}
+
+export function getEmployees(): Employee[] {
+  return db.prepare('SELECT * FROM employees ORDER BY displayOrder ASC, name ASC').all() as Employee[]
+}
+
+export function getEmployee(id: number): Employee | undefined {
+  return db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as Employee | undefined
+}
+
+export function addEmployee(employee: Omit<Employee, 'id'>): Database.RunResult {
+  const stmt = db.prepare(
+    'INSERT INTO employees (name, role, department, status, defaultHours, displayOrder) VALUES (?, ?, ?, ?, ?, ?)'
+  )
+  return stmt.run(
+    employee.name,
+    employee.role,
+    employee.department,
+    employee.status,
+    employee.defaultHours || 160,
+    employee.displayOrder || 0
+  )
+}
+
+export function updateEmployee(id: number, employee: Omit<Employee, 'id'>): Database.RunResult {
+  const stmt = db.prepare(
+    'UPDATE employees SET name = ?, role = ?, department = ?, status = ?, defaultHours = ?, displayOrder = ? WHERE id = ?'
+  )
+  return stmt.run(
+    employee.name,
+    employee.role,
+    employee.department,
+    employee.status,
+    employee.defaultHours,
+    employee.displayOrder || 0,
+    id
+  )
+}
+
+export function updateEmployeeOrder(id: number, order: number): Database.RunResult {
+  const stmt = db.prepare('UPDATE employees SET displayOrder = ? WHERE id = ?')
+  return stmt.run(order, id)
+}
+
+export function deleteEmployee(id: number): Database.RunResult {
+  const stmt = db.prepare('DELETE FROM employees WHERE id = ?')
+  return stmt.run(id)
+}
+
+// Monthly Hours operations
+export function getMonthlyHours(employeeId: number, month: string): number | undefined {
+  const result = db
+    .prepare('SELECT hours FROM monthly_hours WHERE employeeId = ? AND month = ?')
+    .get(employeeId, month) as { hours: number } | undefined
+  return result?.hours
+}
+
+export function setMonthlyHours(
+  employeeId: number,
+  month: string,
+  hours: number
+): Database.RunResult {
+  const stmt = db.prepare(
+    'INSERT INTO monthly_hours (employeeId, month, hours) VALUES (?, ?, ?) ON CONFLICT(employeeId, month) DO UPDATE SET hours = ?'
+  )
+  return stmt.run(employeeId, month, hours, hours)
+}
+
+// Shift operations
+export function getShifts(employeeId: number, startDate?: string, endDate?: string): Shift[] {
+  let query = 'SELECT * FROM shifts WHERE employeeId = ?'
+  const params: (number | string)[] = [employeeId]
+
+  if (startDate && endDate) {
+    query += ' AND startTime >= ? AND endTime <= ?'
+    params.push(startDate, endDate)
+  }
+
+  query += ' ORDER BY startTime ASC'
+  return db.prepare(query).all(...params) as Shift[]
+}
+
+export function getAllShifts(
+  startDate?: string,
+  endDate?: string
+): (Shift & { employeeName: string })[] {
+  let query = `
+    SELECT shifts.*, employees.name as employeeName 
+    FROM shifts 
+    JOIN employees ON shifts.employeeId = employees.id
+    WHERE 1=1
+  `
+  const params: string[] = []
+
+  if (startDate && endDate) {
+    query += ' AND startTime >= ? AND startTime <= ?'
+    params.push(startDate, endDate)
+  }
+
+  query += ' ORDER BY startTime ASC'
+  return db.prepare(query).all(...params) as (Shift & { employeeName: string })[]
+}
+
+export function addShift(shift: Omit<Shift, 'id'>): Database.RunResult {
+  const stmt = db.prepare('INSERT INTO shifts (employeeId, startTime, endTime) VALUES (?, ?, ?)')
+  return stmt.run(shift.employeeId, shift.startTime, shift.endTime)
+}
+
+export function updateShift(id: number, shift: Omit<Shift, 'id'>): Database.RunResult {
+  const stmt = db.prepare(
+    'UPDATE shifts SET employeeId = ?, startTime = ?, endTime = ? WHERE id = ?'
+  )
+  return stmt.run(shift.employeeId, shift.startTime, shift.endTime, id)
+}
+
+export function deleteShift(id: number): Database.RunResult {
+  const stmt = db.prepare('DELETE FROM shifts WHERE id = ?')
+  return stmt.run(id)
+}

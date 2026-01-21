@@ -1,0 +1,411 @@
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Plus, Trash2, Edit2, X, Save, Calendar, Filter } from 'lucide-react'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table'
+import { cn } from '@renderer/lib/utils'
+import { useSettings } from '../hooks/useSettings'
+import ConfirmModal from './ConfirmModal'
+
+type Employee = {
+  id: number
+  name: string
+  role: string
+  department: string
+  status: string
+  defaultHours?: number
+}
+
+export default function Employees(): React.JSX.Element {
+  const { t } = useSettings()
+  const navigate = useNavigate()
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean
+    title: string
+    message: string
+    type: 'danger' | 'warning' | 'info'
+    onConfirm: () => void
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info',
+    onConfirm: () => {}
+  })
+
+  // Filter States
+  const [departmentFilter, setDepartmentFilter] = useState<string>('all')
+  const [roleFilter, setRoleFilter] = useState<string>('all')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+
+  const [formData, setFormData] = useState({
+    name: '',
+    role: '',
+    department: '',
+    status: 'Active',
+    defaultHours: 160
+  })
+
+  const fetchEmployees = async (): Promise<void> => {
+    try {
+      const data = await window.api.employees.getAll()
+      setEmployees(data as Employee[])
+    } catch (error) {
+      console.error('Failed to fetch employees:', error)
+    }
+  }
+
+  useEffect(() => {
+    fetchEmployees()
+  }, [])
+
+  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault()
+    try {
+      if (editingId) {
+        await window.api.employees.update(editingId, formData)
+      } else {
+        await window.api.employees.add(formData)
+      }
+      setIsModalOpen(false)
+      setEditingId(null)
+      setFormData({ name: '', role: '', department: '', status: 'Active', defaultHours: 160 })
+      fetchEmployees()
+    } catch (error) {
+      console.error('Failed to save employee:', error)
+      setConfirmState({
+          isOpen: true,
+          title: t('error') || 'Error',
+          message: `Failed to save employee: ${error instanceof Error ? error.message : String(error)}`,
+          type: 'danger',
+          onConfirm: () => setConfirmState(prev => ({ ...prev, isOpen: false }))
+      })
+    }
+  }
+
+  const handleEdit = (employee: Employee): void => {
+    setEditingId(employee.id)
+    setFormData({
+      name: employee.name,
+      role: employee.role,
+      department: employee.department,
+      status: employee.status,
+      defaultHours: employee.defaultHours || 160
+    })
+    setIsModalOpen(true)
+  }
+
+  const handleDelete = (id: number): void => {
+    setConfirmState({
+      isOpen: true,
+      title: t('deleteEmployee') || 'Delete Employee',
+      message: t('confirmDelete') || 'Are you sure you want to delete this employee?',
+      type: 'danger',
+      onConfirm: async () => {
+          setConfirmState(prev => ({ ...prev, isOpen: false })) // Close confirmation
+          try {
+            await window.api.employees.delete(id)
+            fetchEmployees()
+          } catch (error) {
+            console.error('Failed to delete employee:', error)
+            // Show error
+            setTimeout(() => {
+                setConfirmState({
+                    isOpen: true,
+                    title: t('error') || 'Error',
+                    message: `${t('failedToDeleteEmployee')}: ${error instanceof Error ? error.message : String(error)}`,
+                    type: 'danger',
+                    onConfirm: () => setConfirmState(prev => ({ ...prev, isOpen: false }))
+                })
+            }, 100)
+          }
+      }
+    })
+  }
+
+  const openAddModal = (): void => {
+    setEditingId(null)
+    setFormData({ name: '', role: '', department: '', status: 'Active', defaultHours: 160 })
+    setIsModalOpen(true)
+  }
+
+  // Filter Logic
+  const departments = Array.from(new Set(employees.map(e => e.department).filter(Boolean))).sort()
+  const roles = Array.from(new Set(employees.map(e => e.role).filter(Boolean))).sort()
+  const statuses = Array.from(new Set(employees.map(e => e.status).filter(Boolean))).sort()
+
+  const filteredEmployees = employees.filter(emp => {
+    if (departmentFilter !== 'all' && emp.department !== departmentFilter) return false
+    if (roleFilter !== 'all' && emp.role !== roleFilter) return false
+    if (statusFilter !== 'all' && emp.status !== statusFilter) return false
+    return true
+  })
+
+  return (
+    <div className="mx-auto flex max-w-5xl flex-col gap-6">
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-50">{t('employees')}</h1>
+          <p className="mt-1 text-sm text-slate-400">{t('manageTeamMembers')}</p>
+        </div>
+        <button
+          onClick={openAddModal}
+          className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+        >
+          <Plus className="h-4 w-4" /> {t('addEmployee')}
+        </button>
+      </header>
+
+      <div className="flex flex-wrap items-center gap-4 bg-slate-900/50 p-4 rounded-md border border-slate-800">
+        <div className="flex items-center gap-2 text-slate-400">
+          <Filter className="h-4 w-4" />
+          <span className="text-sm font-medium">{t('filterBy') || 'Filter by'}:</span>
+        </div>
+
+        <select
+          className="bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-500"
+          value={departmentFilter}
+          onChange={(e) => setDepartmentFilter(e.target.value)}
+        >
+          <option value="all">{t('allDepartments') || 'All Departments'}</option>
+          {departments.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+
+        <select
+          className="bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-500"
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+        >
+          <option value="all">{t('allRoles') || 'All Roles'}</option>
+          {roles.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+
+        <select
+          className="bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-500"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="all">{t('allStatuses') || 'All Statuses'}</option>
+          {statuses.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+
+        {(departmentFilter !== 'all' || roleFilter !== 'all' || statusFilter !== 'all') && (
+          <button
+            onClick={() => {
+              setDepartmentFilter('all')
+              setRoleFilter('all')
+              setStatusFilter('all')
+            }}
+            className="text-xs text-blue-400 hover:text-blue-300 ml-auto"
+          >
+            {t('clearFilters') || 'Clear filters'}
+          </button>
+        )}
+      </div>
+
+      <div className="rounded-md border border-slate-800 bg-slate-900/50">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>ID</TableHead>
+              <TableHead>{t('name')}</TableHead>
+              <TableHead>{t('role')}</TableHead>
+              <TableHead>{t('department')}</TableHead>
+              <TableHead>{t('status')}</TableHead>
+              <TableHead className="text-right">{t('actions')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredEmployees.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-slate-500 py-8">
+                  {t('noActiveEmployees')}
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredEmployees.map((emp) => (
+                <TableRow
+                  key={emp.id}
+                  className="cursor-pointer hover:bg-slate-800/50"
+                  onDoubleClick={() => navigate(`/employees/${emp.id}`)}
+                >
+                  <TableCell className="text-slate-400">#{emp.id}</TableCell>
+                  <TableCell className="font-medium text-slate-200">{emp.name}</TableCell>
+                  <TableCell>{emp.role}</TableCell>
+                  <TableCell className="text-slate-300">{emp.department}</TableCell>
+                  <TableCell>
+                    <span
+                      className={cn(
+                        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                        emp.status === 'Active'
+                          ? 'bg-emerald-500/10 text-emerald-400'
+                          : emp.status === 'Inactive'
+                            ? 'bg-slate-700 text-slate-400'
+                            : 'bg-amber-500/10 text-amber-400'
+                      )}
+                    >
+                      {emp.status === 'Active'
+                        ? t('statusActive')
+                        : emp.status === 'Inactive'
+                          ? t('statusInactive')
+                          : emp.status === 'On Leave'
+                            ? t('statusOnLeave')
+                            : emp.status}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Link
+                        to={`/employees/${emp.id}`}
+                        className="p-2 text-slate-400 hover:text-blue-400 transition-colors"
+                        title={t('shifts')}
+                      >
+                        <Calendar className="h-4 w-4" />
+                      </Link>
+                      <button
+                        onClick={() => handleEdit(emp)}
+                        className="p-2 text-slate-400 hover:text-blue-400 transition-colors"
+                        title={t('editEmployee')}
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(emp.id)}
+                        className="p-2 text-slate-400 hover:text-red-400 transition-colors"
+                        title={t('delete')}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-lg border border-slate-800 bg-slate-950 p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">
+                {editingId ? t('editEmployee') : t('addEmployee')}
+              </h2>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">{t('name')}</label>
+                <input
+                  type="text"
+                  required
+                  placeholder={t('placeholderName')}
+                  className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">{t('role')}</label>
+                <input
+                  type="text"
+                  required
+                  placeholder={t('placeholderRole')}
+                  className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={formData.role}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">{t('department')}</label>
+                <input
+                  type="text"
+                  required
+                  placeholder={t('placeholderDepartment')}
+                  className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={formData.department}
+                  onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">
+                  {t('defaultMonthlyHours')}
+                </label>
+                <input
+                  type="number"
+                  required
+                  className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={formData.defaultHours}
+                  onChange={(e) =>
+                    setFormData({ ...formData, defaultHours: Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">{t('status')}</label>
+                <select
+                  className="w-full rounded-md border border-slate-800 bg-slate-900 pl-3 pr-8 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                >
+                  <option value="Active">{t('statusActive')}</option>
+                  <option value="Inactive">{t('statusInactive')}</option>
+                  <option value="On Leave">{t('statusOnLeave')}</option>
+                </select>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="rounded-md border border-slate-800 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-900 transition-colors"
+                >
+                  {t('cancel')}
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+                >
+                  <Save className="h-4 w-4" /> {t('save')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        type={confirmState.type}
+        confirmText={t('confirm')}
+        cancelText={t('cancel')}
+      />
+    </div>
+  )
+}

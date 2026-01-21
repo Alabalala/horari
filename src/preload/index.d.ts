@@ -1,0 +1,50 @@
+import { ElectronAPI } from '@electron-toolkit/preload'
+
+declare global {
+  interface Window {
+    electron: ElectronAPI
+    api: {
+      employees: {
+        getAll: () => Promise<unknown[]>
+        get: (id: number) => Promise<unknown>
+        add: (employee: {
+          name: string
+          role: string
+          department: string
+          status: string
+          defaultHours?: number
+          displayOrder?: number
+        }) => Promise<void>
+        update: (
+          id: number,
+          employee: {
+            name: string
+            role: string
+            department: string
+            status: string
+            defaultHours?: number
+            displayOrder?: number
+          }
+        ) => Promise<void>
+        updateOrder: (id: number, order: number) => Promise<void>
+        delete: (id: number) => Promise<void>
+        getMonthlyHours: (employeeId: number, month: string) => Promise<number | undefined>
+        setMonthlyHours: (employeeId: number, month: string, hours: number) => Promise<void>
+      }
+      shifts: {
+        get: (employeeId: number, startDate?: string, endDate?: string) => Promise<unknown[]>
+        getAll: (startDate?: string, endDate?: string) => Promise<unknown[]>
+        add: (shift: { employeeId: number; startTime: string; endTime: string }) => Promise<void>
+        update: (
+          id: number,
+          shift: { employeeId: number; startTime: string; endTime: string }
+        ) => Promise<void>
+        delete: (id: number) => Promise<void>
+      }
+      settings: {
+        getAll: () => Promise<Record<string, string>>
+        update: (key: string, value: string) => Promise<void>
+      }
+    }
+  }
+}

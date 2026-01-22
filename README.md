@@ -56,7 +56,3 @@ pnpm dev
 # Build for production (Windows)
 pnpm dist
 ```
-
----
-
-*Generated with ❤️ by Trae*

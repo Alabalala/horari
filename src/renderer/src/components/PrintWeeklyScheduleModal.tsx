@@ -14,7 +14,7 @@ import {
   areIntervalsOverlapping
 } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { X, Printer, Download, FileType, ChevronDown, FileImage } from 'lucide-react'
+import { X, Download, ChevronDown, Loader2 } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 import { Employee, Shift } from '../types'
 import html2canvas from 'html2canvas'
@@ -243,15 +243,7 @@ export default function PrintWeeklyScheduleModal({
                     backgroundColor: '#ffffff',
                     logging: false,
                     useCORS: true,
-                    allowTaint: true,
-                    onclone: (clonedDoc) => {
-                         // Find all employee names and day headers in the clone
-                         // We target them by common classes or elements
-                         
-                         // 1. Fix Employee Names
-                         // REMOVE the text manipulation inside onclone. 
-                         // Only keep it if you need it for something else, but DELETE the part touching .truncate or .bg-slate-800
-                    }
+                    allowTaint: true
                 })
                 canvases.push(canvas)
                 totalHeight += canvas.height
@@ -310,15 +302,7 @@ export default function PrintWeeklyScheduleModal({
                     backgroundColor: '#ffffff',
                     logging: false,
                     useCORS: true,
-                    allowTaint: true,
-                    onclone: (clonedDoc) => {
-                         // Find all employee names and day headers in the clone
-                         // We target them by common classes or elements
-                         
-                         // 1. Fix Employee Names
-                         // REMOVE the text manipulation inside onclone. 
-                         // Only keep it if you need it for something else, but DELETE the part touching .truncate or .bg-slate-800
-                    }
+                    allowTaint: true
                 })
                 const imgData = canvas.toDataURL('image/png')
                 pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight)
@@ -374,20 +358,20 @@ export default function PrintWeeklyScheduleModal({
 
             <div className="flex items-center gap-2 border-l pl-4 border-slate-300">
                 <button
-                onClick={() => handleExport('pdf')}
-                disabled={isGenerating}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
-                >
-                {isGenerating ? <span className="animate-spin">⌛</span> : <FileType className="h-4 w-4" />}
-                PDF
-                </button>
-                <button
                 onClick={() => handleExport('png')}
                 disabled={isGenerating}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
                 >
-                {isGenerating ? <span className="animate-spin">⌛</span> : <FileImage className="h-4 w-4" />}
-                PNG
+                {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Export PNG
+                </button>
+                <button
+                onClick={() => handleExport('pdf')}
+                disabled={isGenerating}
+                className="flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
+                >
+                {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Export PDF
                 </button>
             </div>
             
@@ -612,28 +596,16 @@ const DayContent = ({
             {/* Compact Day Header - Flex Replacement */}
             <div className="flex items-center w-full mb-2 h-[40px] break-inside-avoid">
                 <div className="shrink-0 pr-2">
-                    <div className="bg-slate-800 text-white text-sm font-bold rounded uppercase text-center w-[50px]"
-                        style={{
-                            height: '28px',
-                            boxSizing: 'border-box',
-                            paddingTop: '5px', // Manual tweak for visual center
-                            lineHeight: '14px',
-                            display: 'block'
-                        }}>
+                    <div className="bg-slate-800 text-white text-sm font-bold rounded uppercase text-center w-[50px] flex items-center justify-center"
+                        style={{ height: '28px' }}>
                         {format(day, 'EEE', { locale: dateLocale })}
                     </div>
                 </div>
                 <div className="shrink-0 pr-2">
-                    <span className="text-sm font-semibold text-slate-900 block"
-                        style={{
-                            height: '28px',
-                            boxSizing: 'border-box',
-                            paddingTop: '5px', // Manual tweak
-                            lineHeight: '14px',
-                            display: 'block'
-                        }}>
+                    <div className="text-sm font-semibold text-slate-900 block w-[30px] text-center flex items-center justify-center"
+                        style={{ height: '28px' }}>
                         {format(day, 'd', { locale: dateLocale })}
-                    </span>
+                    </div>
                 </div>
                 <div className="flex-1 flex items-center">
                     <div className="h-px bg-slate-200 w-full"></div>
@@ -667,35 +639,21 @@ const DayContent = ({
                         const dayShifts = getShiftsForDayAndEmployee(day, emp.id)
                         return (
                             <div key={emp.id} className="flex h-8 group hover:bg-slate-50 relative" style={{ height: '32px' }}>
-                                {/* FIX: Padding Lock Method */}
+                                {/* Standard Flexbox Layout (Restored) */}
                                 <div 
+                                    className="shrink-0 flex items-center px-3 border-r border-slate-100 bg-white"
                                     style={{ 
                                         width: '16rem', 
-                                        height: '32px', 
-                                        display: 'block', 
-                                        boxSizing: 'border-box', // Essential for padding to work inside height
-                                        
-                                        // PHYSICAL ALIGNMENT MATH:
-                                        // 32px (Height) - 12px (Font) = 20px space.
-                                        // We push it down 10px.
-                                        paddingTop: '10px',
-                                        lineHeight: '12px', // Reset line-height to be tight so it doesn't push down further
-                                        
-                                        paddingLeft: '0.75rem',
-                                        paddingRight: '0.75rem',
-                                        borderRight: '1px solid #f1f5f9',
-                                        overflow: 'hidden',
-                                        whiteSpace: 'nowrap',
-                                        textOverflow: 'ellipsis'
+                                        height: '32px'
                                     }} 
-                                    // Remove 'flex', 'items-center' or 'truncate' classes that might conflict with padding
-                                    className="shrink-0 text-xs font-medium text-slate-700"
-                                    title={emp.name}
                                 > 
-                                    {emp.name}
+                                    {/* No padding hacks, no line-height locks. Just clean text. */}
+                                    <span className="text-xs font-medium text-slate-700 truncate w-full" title={emp.name}> 
+                                        {emp.name}
+                                    </span>
                                 </div>
                                 
-                                <div className="flex-1 relative h-full">
+                                <div className="flex-1 relative h-full overflow-hidden">
                                     {/* Grid Lines */}
                                     <div className="absolute inset-0 flex pointer-events-none">
                                         {hours.map((hour: number, i: number) => (
@@ -727,7 +685,7 @@ const DayContent = ({
                                                 className="absolute top-1 bottom-1 bg-blue-500/90 rounded-sm border border-blue-600/20 flex items-center justify-center overflow-visible z-10 print:bg-blue-500 print:text-white"
                                                 style={{ left: `${left}%`, width: `${width}%` }}
                                             >
-                                                <span className="text-[7px] font-bold text-white whitespace-nowrap drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] px-1 flex items-center gap-1">
+                                                <span className="text-[10px] font-bold text-white whitespace-nowrap drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] px-1 flex items-center gap-1">
                                                     <span>{format(sStart, 'HH:mm')} - {format(sEnd, 'HH:mm')}</span>
                                                 </span>
                                             </div>

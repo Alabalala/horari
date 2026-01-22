@@ -188,7 +188,7 @@ export default function PrintWeekModal({
                                             onUpdate={() => Promise.resolve()} // Read-only
                                             onEdit={() => {}} // Read-only
                                             readOnly={true}
-                                            className="top-2 bottom-2 absolute rounded bg-blue-500 border-blue-600 shadow-sm !cursor-default !pointer-events-none"
+                                            className="top-2 bottom-2 absolute rounded bg-blue-500 border-blue-600 shadow-sm !cursor-default !pointer-events-none text-[11px]"
                                         />
                                     ))}
                                 </div>

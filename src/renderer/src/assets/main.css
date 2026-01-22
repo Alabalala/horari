@@ -4,6 +4,14 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  /* Fixes html2canvas vertical alignment bug */
+  img, svg {
+    display: inline-block;
+    vertical-align: middle;
+  }
+}
+
 body {
   user-select: none;
   background-color: transparent;

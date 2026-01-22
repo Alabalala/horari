@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: horari
+appId: com.horari.app
+productName: Horari
 directories:
   buildResources: build
 files:
@@ -12,7 +12,8 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: horari
+  executableName: Horari
+  target: nsis
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
@@ -26,6 +27,7 @@ mac:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
+  target: dmg
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
@@ -39,5 +41,6 @@ appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: YourGitHubUsername
+  repo: horari

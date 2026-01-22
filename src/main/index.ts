@@ -1,5 +1,6 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
+import fs from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import {
@@ -130,8 +131,15 @@ app.whenReady().then(() => {
     // Export
     ipcMain.handle('save-export', async (_, { data, filename }) => {
       try {
-        const downloadsPath = app.getPath('downloads')
-        const filePath = join(downloadsPath, filename)
+        const ext = filename.split('.').pop()
+        const { filePath } = await dialog.showSaveDialog({
+          defaultPath: filename,
+          filters: [
+            { name: ext.toUpperCase(), extensions: [ext] }
+          ]
+        })
+
+        if (!filePath) return { canceled: true }
         
         // Remove header (data:image/png;base64, or data:application/pdf;base64,)
         const base64Data = data.replace(/^data:.*?;base64,/, "")

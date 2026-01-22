@@ -42,6 +42,7 @@ import ShiftTimelineItem from './ShiftTimelineItem'
 import ConfirmModal from './ConfirmModal'
 import { DatePicker } from './DatePicker'
 import PrintWeekModal from './PrintWeekModal'
+import PrintWeeklyScheduleModal from './PrintWeeklyScheduleModal'
 
 // Component for the timeline view of a single employee row
 const ShiftTimelineContainer = ({
@@ -172,6 +173,8 @@ export default function Shifts(): React.JSX.Element {
     isOpen: false,
     employee: null
   })
+
+  const [isPrintWeeklyModalOpen, setIsPrintWeeklyModalOpen] = useState(false)
 
   // Validate form data effect
   useEffect(() => {
@@ -770,6 +773,16 @@ export default function Shifts(): React.JSX.Element {
             ))}
           </select>
         </div>
+        
+        {view === 'week' && (
+          <button
+            onClick={() => setIsPrintWeeklyModalOpen(true)}
+            className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm font-medium text-slate-700 dark:text-slate-200 ml-auto"
+          >
+            <Printer className="h-4 w-4" />
+            {t('printSchedule') || "Print Schedule"}
+          </button>
+        )}
       </div>
 
       {/* Shifts Grid */}

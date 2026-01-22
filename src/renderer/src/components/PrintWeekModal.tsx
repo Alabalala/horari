@@ -50,7 +50,7 @@ export default function PrintWeekModal({
     try {
       // Create canvas
       const canvas = await html2canvas(printRef.current, {
-        scale: 2, // Higher quality
+        scale: 3, // Higher quality and better alignment
         backgroundColor: '#ffffff',
         logging: false,
         useCORS: true,
@@ -187,6 +187,7 @@ export default function PrintWeekModal({
                                             containerRef={{ current: null } as any} // No drag in print view
                                             onUpdate={() => Promise.resolve()} // Read-only
                                             onEdit={() => {}} // Read-only
+                                            readOnly={true}
                                             className="top-2 bottom-2 absolute rounded bg-blue-500 border-blue-600 shadow-sm !cursor-default !pointer-events-none"
                                         />
                                     ))}

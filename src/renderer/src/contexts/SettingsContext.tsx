@@ -96,7 +96,12 @@ const translations = {
     owed: 'Owed',
     generatedOn: 'Generated on',
     exportSchedule: 'Export Schedule',
-    schedule: 'Schedule'
+    schedule: 'Schedule',
+    print: 'Print',
+    printSchedule: 'Print Schedule',
+    totalStaff: 'Hours without staff',
+    preview: 'Preview',
+    weeklySchedule: 'Weekly Schedule'
   },
   es: {
     dashboard: 'Panel de control',
@@ -193,9 +198,11 @@ const translations = {
     generatedOn: 'Generado el',
     exportSchedule: 'Exportar horario',
     schedule: 'Horario',
-    totalStaff: 'Personal total',
+    totalStaff: 'Horas sin personal',
     print: 'Imprimir',
-    printSchedule: 'Imprimir horario'
+    printSchedule: 'Imprimir horario',
+    preview: 'Vista previa',
+    weeklySchedule: 'Horario Semanal'
   }
 }
 

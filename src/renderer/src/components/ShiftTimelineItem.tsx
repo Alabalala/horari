@@ -12,6 +12,7 @@ interface ShiftTimelineItemProps {
   onEdit: (shift: Shift) => void
   onContextMenu?: (e: React.MouseEvent, shift: Shift) => void
   className?: string
+  readOnly?: boolean
 }
 
 export default function ShiftTimelineItem({
@@ -22,7 +23,8 @@ export default function ShiftTimelineItem({
   onUpdate,
   onEdit,
   onContextMenu,
-  className
+  className,
+  readOnly = false
 }: ShiftTimelineItemProps): React.JSX.Element {
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null)
   
@@ -139,15 +141,17 @@ export default function ShiftTimelineItem({
       className={cn(
         "absolute top-1 bottom-1 bg-blue-600/80 rounded-sm text-[10px] text-white flex items-center justify-center overflow-hidden whitespace-nowrap px-1 group cursor-pointer border-l border-r border-blue-400 select-none z-10 print:whitespace-nowrap print:overflow-visible print:[text-shadow:0_1px_2px_rgb(0_0_0_/_80%)]",
         isResizing && "z-20 ring-2 ring-blue-400 opacity-90",
+        readOnly && "cursor-default border-none",
         className
       )}
       style={{ left: `${left}%`, width: `${width}%` }}
       onDoubleClick={(e) => {
+        if (readOnly) return
         e.stopPropagation()
         onEdit(shift)
       }}
       onContextMenu={(e) => {
-        if (onContextMenu) {
+        if (onContextMenu && !readOnly) {
           e.preventDefault()
           e.stopPropagation()
           onContextMenu(e, shift)
@@ -156,24 +160,28 @@ export default function ShiftTimelineItem({
       title={`${formatDisplayTime(currentStartHour)} - ${formatDisplayTime(currentEndHour)}`}
     >
       {/* Left Handle */}
-      <div
-        className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 flex items-center justify-center"
-        onMouseDown={(e) => startResize(e, 'left')}
-      >
-        <div className="w-0.5 h-3 bg-white/30 rounded-full" />
-      </div>
+      {!readOnly && (
+        <div
+            className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 flex items-center justify-center"
+            onMouseDown={(e) => startResize(e, 'left')}
+        >
+            <div className="w-0.5 h-3 bg-white/30 rounded-full" />
+        </div>
+      )}
 
-      <span className="truncate px-2">
+      <span className={cn("px-1", !readOnly && "truncate px-2")}>
         {formatDisplayTime(currentStartHour)} - {formatDisplayTime(currentEndHour)}
       </span>
 
       {/* Right Handle */}
-      <div
-        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 flex items-center justify-center"
-        onMouseDown={(e) => startResize(e, 'right')}
-      >
-         <div className="w-0.5 h-3 bg-white/30 rounded-full" />
-      </div>
+      {!readOnly && (
+        <div
+            className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 flex items-center justify-center"
+            onMouseDown={(e) => startResize(e, 'right')}
+        >
+            <div className="w-0.5 h-3 bg-white/30 rounded-full" />
+        </div>
+      )}
     </div>
   )
 }

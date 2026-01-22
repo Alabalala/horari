@@ -4,7 +4,7 @@
 
 > 🤖 **Built with AI & Trae**
 >
-> This entire application was architected and built using **Trae**, an adaptive AI IDE. From the initial concept to the final production build, every line of code was crafted through the collaboration between the user and Trae's AI agent.
+> This entire application was architected and built using **Trae**, an adaptive AI IDE. From the initial concept to the final production build, every line of code was crafted through the collaboration between me and Trae's AI agent.
 
 ## ✨ Features
 

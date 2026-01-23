@@ -30,6 +30,9 @@ declare global {
         delete: (id: number) => Promise<void>
         getMonthlyHours: (employeeId: number, month: string) => Promise<number | undefined>
         setMonthlyHours: (employeeId: number, month: string, hours: number) => Promise<void>
+        getWeeklyHours: (employeeId: number, weekStart: string) => Promise<number | undefined>
+        getAllWeeklyHours: (weekStart: string) => Promise<{ employeeId: number; hours: number }[]>
+        setWeeklyHours: (employeeId: number, weekStart: string, hours: number) => Promise<void>
       }
       shifts: {
         get: (employeeId: number, startDate?: string, endDate?: string) => Promise<unknown[]>

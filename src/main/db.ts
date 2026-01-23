@@ -63,10 +63,19 @@ db.exec(`
     FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE,
     UNIQUE(employeeId, month)
   );
+
+  CREATE TABLE IF NOT EXISTS weekly_hours (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employeeId INTEGER NOT NULL,
+    weekStart TEXT NOT NULL,
+    hours REAL NOT NULL,
+    FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE,
+    UNIQUE(employeeId, weekStart)
+  );
 `)
 
 try {
-  db.exec('ALTER TABLE employees ADD COLUMN defaultHours REAL DEFAULT 160')
+  db.exec('ALTER TABLE employees ADD COLUMN defaultHours REAL DEFAULT 40')
 } catch (error) {
   // Column likely exists
 }
@@ -129,7 +138,7 @@ export function addEmployee(employee: Omit<Employee, 'id'>): Database.RunResult 
     employee.role,
     employee.department,
     employee.status,
-    employee.defaultHours || 160,
+    employee.defaultHours || 40,
     employee.displayOrder || 0
   )
 }
@@ -176,6 +185,31 @@ export function setMonthlyHours(
     'INSERT INTO monthly_hours (employeeId, month, hours) VALUES (?, ?, ?) ON CONFLICT(employeeId, month) DO UPDATE SET hours = ?'
   )
   return stmt.run(employeeId, month, hours, hours)
+}
+
+// Weekly Hours operations
+export function getWeeklyHours(employeeId: number, weekStart: string): number | undefined {
+  const result = db
+    .prepare('SELECT hours FROM weekly_hours WHERE employeeId = ? AND weekStart = ?')
+    .get(employeeId, weekStart) as { hours: number } | undefined
+  return result?.hours
+}
+
+export function getAllWeeklyHours(weekStart: string): { employeeId: number; hours: number }[] {
+  return db
+    .prepare('SELECT employeeId, hours FROM weekly_hours WHERE weekStart = ?')
+    .all(weekStart) as { employeeId: number; hours: number }[]
+}
+
+export function setWeeklyHours(
+  employeeId: number,
+  weekStart: string,
+  hours: number
+): Database.RunResult {
+  const stmt = db.prepare(
+    'INSERT INTO weekly_hours (employeeId, weekStart, hours) VALUES (?, ?, ?) ON CONFLICT(employeeId, weekStart) DO UPDATE SET hours = ?'
+  )
+  return stmt.run(employeeId, weekStart, hours, hours)
 }
 
 // Shift operations

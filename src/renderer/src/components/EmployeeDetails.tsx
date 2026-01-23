@@ -6,15 +6,20 @@ import {
   startOfDay,
   endOfDay,
   startOfWeek,
+  endOfWeek,
   addDays,
+  addMonths,
   startOfMonth,
   endOfMonth,
+  eachWeekOfInterval,
   parseISO,
-  isSameDay
+  isSameDay,
+  differenceInMinutes
 } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@renderer/lib/utils'
 import { useSettings } from '../hooks/useSettings'
+import { StatsVisibilityMenu } from './StatsVisibilityMenu'
 import ShiftContextMenu from './ShiftContextMenu'
 import ConfirmModal from './ConfirmModal'
 
@@ -39,14 +44,24 @@ export default function EmployeeDetails(): React.JSX.Element {
   const navigate = useNavigate()
   const [employee, setEmployee] = useState<Employee | null>(null)
   const [shifts, setShifts] = useState<Shift[]>([])
-  const [view, setView] = useState<'day' | 'week'>('week')
+  const [view, setView] = useState<'day' | 'week' | 'month'>('week')
   const [currentDate, setCurrentDate] = useState(new Date())
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingShift, setEditingShift] = useState<Shift | null>(null)
   const [monthlyHours, setMonthlyHours] = useState<number>(160)
   const [totalWorkedHours, setTotalWorkedHours] = useState<number>(0)
-  const [isEditingHours, setIsEditingHours] = useState(false)
-  const [tempHours, setTempHours] = useState<string>('')
+  const [weeklyTarget, setWeeklyTarget] = useState<number>(40)
+  const [weeklyWorked, setWeeklyWorked] = useState<number>(0)
+  const [weeklyHoursModal, setWeeklyHoursModal] = useState<{
+      isOpen: boolean
+      weekStart: Date
+      currentHours: number
+  }>({
+      isOpen: false,
+      weekStart: new Date(),
+      currentHours: 40
+  })
+
   const { settings, t } = useSettings()
   const dateLocale = settings.language === 'es' ? es : undefined
 
@@ -144,10 +159,18 @@ export default function EmployeeDetails(): React.JSX.Element {
     if (view === 'day') {
       start = startOfDay(currentDate).toISOString()
       end = endOfDay(currentDate).toISOString()
-    } else {
+    } else if (view === 'week') {
       const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
       start = startOfDay(weekStart).toISOString()
       end = endOfDay(addDays(weekStart, 6)).toISOString()
+    } else {
+      // Month view
+      const monthStart = startOfMonth(currentDate)
+      const monthEnd = endOfMonth(currentDate)
+      const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 })
+      const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
+      start = startOfDay(calendarStart).toISOString()
+      end = endOfDay(calendarEnd).toISOString()
     }
     try {
       const data = await window.api.shifts.get(Number(id), start, end)
@@ -157,36 +180,64 @@ export default function EmployeeDetails(): React.JSX.Element {
     }
   }
 
-  const fetchMonthlyData = async (): Promise<void> => {
-    if (!id) return
-    const monthStr = format(currentDate, 'yyyy-MM')
-
-    try {
-      const hours = await window.api.employees.getMonthlyHours(Number(id), monthStr)
-      if (hours !== undefined) {
-        setMonthlyHours(hours)
-      } else if (employee?.defaultHours) {
-        setMonthlyHours(employee.defaultHours)
-      } else {
-        setMonthlyHours(160)
-      }
-    } catch (error) {
-      console.error('Failed to fetch monthly hours:', error)
-    }
+  const fetchStats = async (): Promise<void> => {
+    if (!id || !employee) return
+    
+    // 1. Monthly Stats
+    const monthStart = startOfMonth(currentDate)
+    const monthEnd = endOfMonth(currentDate)
+    const weeks = eachWeekOfInterval({ start: monthStart, end: monthEnd }, { weekStartsOn: 1 })
+    
+    let totalAgreed = 0
+    const defaultWeekly = employee.defaultHours || 40
+    await Promise.all(weeks.map(async (weekStart) => {
+        const weekStr = weekStart.toISOString()
+        const override = await window.api.employees.getWeeklyHours(Number(id), weekStr)
+        if (typeof override === 'number') {
+          totalAgreed += override
+        } else {
+          totalAgreed += defaultWeekly
+        }
+    }))
+    setMonthlyHours(totalAgreed)
 
     const start = startOfMonth(currentDate).toISOString()
     const end = endOfMonth(currentDate).toISOString()
     try {
       const monthShifts = (await window.api.shifts.get(Number(id), start, end)) as Shift[]
       const total = monthShifts.reduce((sum, shift) => {
-        const duration =
-          (new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) /
-          (1000 * 60 * 60)
+        const duration = differenceInMinutes(parseISO(shift.endTime), parseISO(shift.startTime)) / 60
         return sum + duration
       }, 0)
       setTotalWorkedHours(total)
     } catch (error) {
       console.error('Failed to fetch month shifts:', error)
+    }
+
+    // 2. Weekly Stats
+    const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
+    const weekStr = currentWeekStart.toISOString()
+    
+    // Target
+    try {
+        const override = await window.api.employees.getWeeklyHours(Number(id), weekStr)
+        setWeeklyTarget(typeof override === 'number' ? override : defaultWeekly)
+    } catch (e) {
+        setWeeklyTarget(defaultWeekly)
+    }
+
+    // Worked
+    try {
+        const startW = startOfDay(currentWeekStart).toISOString()
+        const endW = endOfDay(addDays(currentWeekStart, 6)).toISOString()
+        const weekShifts = await window.api.shifts.get(Number(id), startW, endW) as Shift[]
+        const worked = weekShifts.reduce((sum, shift) => {
+            const duration = differenceInMinutes(parseISO(shift.endTime), parseISO(shift.startTime)) / 60
+            return sum + duration
+        }, 0)
+        setWeeklyWorked(worked)
+    } catch (e) {
+        console.error('Failed to fetch week shifts', e)
     }
   }
 
@@ -206,24 +257,9 @@ export default function EmployeeDetails(): React.JSX.Element {
 
   useEffect(() => {
     if (employee) {
-      fetchMonthlyData()
+      fetchStats()
     }
   }, [employee, currentDate, shifts])
-
-  const handleSaveHours = async (): Promise<void> => {
-    if (!id) return
-    const monthStr = format(currentDate, 'yyyy-MM')
-    const hours = parseFloat(tempHours)
-    if (isNaN(hours)) return
-
-    try {
-      await window.api.employees.setMonthlyHours(Number(id), monthStr, hours)
-      setMonthlyHours(hours)
-      setIsEditingHours(false)
-    } catch (error) {
-      console.error('Failed to save monthly hours:', error)
-    }
-  }
 
   const handleContextMenu = (e: React.MouseEvent, shift: Shift) => {
     e.preventDefault()
@@ -326,6 +362,17 @@ export default function EmployeeDetails(): React.JSX.Element {
     return addDays(weekStart, i)
   })
 
+  const monthStart = startOfMonth(currentDate)
+  const monthEnd = endOfMonth(currentDate)
+  const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 })
+  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
+  const calendarDays: Date[] = []
+  let dayIter = calendarStart
+  while (dayIter <= calendarEnd) {
+      calendarDays.push(dayIter)
+      dayIter = addDays(dayIter, 1)
+  }
+
   if (!employee) return <div className="p-8 text-slate-400">{t('loading')}</div>
 
   return (
@@ -348,91 +395,142 @@ export default function EmployeeDetails(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="flex items-center gap-6 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 px-6 py-3 shadow-sm">
-          <div className="text-center">
-            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              {t('month')}
-            </div>
-            <div className="text-sm font-semibold text-slate-900 dark:text-slate-200 capitalize">
-              {format(currentDate, 'MMMM', { locale: dateLocale })}
-            </div>
-          </div>
-          <div className="h-8 w-px bg-slate-200 dark:bg-slate-800" />
+        <div className="flex items-center gap-6 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 px-6 py-3 shadow-sm [&>.stat-separator:last-child]:hidden">
+          {view === 'month' ? (
+            <>
+              <div className="text-center">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {t('month')}
+                </div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-200 capitalize">
+                  {format(currentDate, 'MMMM', { locale: dateLocale })}
+                </div>
+              </div>
+              <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
 
-          <div className="text-center">
-            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              {t('worked')}
-            </div>
-            <div
-              className={cn(
-                'text-sm font-semibold',
-                totalWorkedHours >= monthlyHours
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-amber-600 dark:text-amber-400'
+              {settings.visibleStats.totalWorked && (
+                <>
+                  <div className="text-center">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {t('worked')}
+                    </div>
+                    <div
+                      className={cn(
+                        'text-sm font-semibold',
+                        totalWorkedHours >= monthlyHours
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-amber-600 dark:text-amber-400'
+                      )}
+                    >
+                      {totalWorkedHours.toFixed(1)}h
+                    </div>
+                  </div>
+                  <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
+                </>
               )}
-            >
-              {totalWorkedHours.toFixed(1)}h
-            </div>
-          </div>
-          <div className="h-8 w-px bg-slate-200 dark:bg-slate-800" />
-          <div className="text-center">
-            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              {t('target')}
-            </div>
-            {isEditingHours ? (
-              <div className="flex items-center gap-1 mt-0.5">
-                <input
-                  type="number"
-                  className="w-14 h-6 rounded bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-center text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-                  value={tempHours}
-                  onChange={(e) => setTempHours(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSaveHours()}
-                  autoFocus
-                />
-                <button
-                  onClick={handleSaveHours}
-                  className="text-emerald-600 hover:text-emerald-500 p-0.5"
-                >
-                  <Save className="h-3 w-3" />
-                </button>
-                <button
-                  onClick={() => setIsEditingHours(false)}
-                  className="text-red-600 hover:text-red-500 p-0.5"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ) : (
-              <div
-                className="cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors mt-0.5"
-                onClick={() => {
-                  setTempHours(monthlyHours.toString())
-                  setIsEditingHours(true)
-                }}
-              >
-                <span className="text-sm font-semibold text-slate-900 dark:text-slate-200">
-                  {monthlyHours}h
-                </span>
-              </div>
-            )}
-          </div>
-          <div className="h-8 w-px bg-slate-200 dark:bg-slate-800" />
-          <div className="text-center">
-            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              {t('diff')}
-            </div>
-            <div
-              className={cn(
-                'text-sm font-semibold',
-                totalWorkedHours - monthlyHours >= 0
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-red-600 dark:text-red-400'
+
+              {settings.visibleStats.monthlyTarget && (
+                <>
+                  <div className="text-center">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {t('targetMonthly')}
+                    </div>
+                    <div className="mt-0.5">
+                      <span className="text-sm font-semibold text-slate-900 dark:text-slate-200">
+                        {monthlyHours}h
+                      </span>
+                    </div>
+                  </div>
+                  <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
+                </>
               )}
-            >
-              {totalWorkedHours - monthlyHours > 0 ? '+' : ''}
-              {(totalWorkedHours - monthlyHours).toFixed(1)}h
-            </div>
-          </div>
+
+              {settings.visibleStats.monthlyDiff && (
+                <>
+                  <div className="text-center">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {t('monthDiff')}
+                    </div>
+                    <div
+                      className={cn(
+                        'text-sm font-semibold',
+                        totalWorkedHours - monthlyHours >= 0
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-red-600 dark:text-red-400'
+                      )}
+                    >
+                      {totalWorkedHours - monthlyHours > 0 ? '+' : ''}
+                      {(totalWorkedHours - monthlyHours).toFixed(1)}h
+                    </div>
+                  </div>
+                  <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="text-center">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {t('week')}
+                </div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-200">
+                   {format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'MMM d', { locale: dateLocale })}
+                </div>
+              </div>
+              <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
+              
+              {settings.visibleStats.totalWorked && (
+                <>
+                  <div className="text-center">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {t('worked')}
+                    </div>
+                    <div className={cn("text-sm font-semibold", weeklyWorked >= weeklyTarget ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400")}>
+                      {weeklyWorked.toFixed(1)}h
+                    </div>
+                  </div>
+                  <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
+                </>
+              )}
+
+              {settings.visibleStats.weeklyTarget && (
+                <>
+                  <div className="text-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 rounded px-2 -mx-2 transition-colors"
+                     onClick={() => setWeeklyHoursModal({
+                         isOpen: true,
+                         weekStart: startOfWeek(currentDate, { weekStartsOn: 1 }),
+                         currentHours: weeklyTarget
+                     })}
+                     title={t('editWeeklyHours') || 'Edit Weekly Hours'}
+                  >
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1">
+                      {t('targetWeekly')} <span className="text-[10px] text-blue-500">({t('edit')})</span>
+                    </div>
+                    <div className="mt-0.5">
+                      <span className="text-sm font-semibold text-blue-600 dark:text-blue-400 border-b border-dashed border-blue-400">
+                        {weeklyTarget}h
+                      </span>
+                    </div>
+                  </div>
+                  <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
+                </>
+              )}
+
+              {settings.visibleStats.weeklyDiff && (
+                <>
+                  <div className="text-center">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {t('weekDiff')}
+                    </div>
+                    <div className={cn("text-sm font-semibold", weeklyWorked - weeklyTarget >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                       {weeklyWorked - weeklyTarget > 0 ? '+' : ''}{(weeklyWorked - weeklyTarget).toFixed(1)}h
+                    </div>
+                  </div>
+                  <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
+                </>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -461,11 +559,26 @@ export default function EmployeeDetails(): React.JSX.Element {
             >
               {t('week')}
             </button>
+            <button
+              onClick={() => setView('month')}
+              className={cn(
+                'px-3 py-1 text-sm font-medium rounded-sm transition-colors',
+                view === 'month'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              )}
+            >
+              {t('month')}
+            </button>
           </div>
 
           <div className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+            <StatsVisibilityMenu />
             <button
-              onClick={() => setCurrentDate((d) => addDays(d, view === 'day' ? -1 : -7))}
+              onClick={() => setCurrentDate((d) => {
+                  if (view === 'month') return addMonths(d, -1)
+                  return addDays(d, view === 'day' ? -1 : -7)
+              })}
               className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
             >
               {'<'}
@@ -473,10 +586,15 @@ export default function EmployeeDetails(): React.JSX.Element {
             <span className="text-sm font-medium min-w-[120px] text-center">
               {view === 'day'
                 ? format(currentDate, 'MMM d, yyyy', { locale: dateLocale })
-                : `${t('weekOf')} ${format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'MMM d', { locale: dateLocale })}`}
+                : view === 'week' 
+                  ? `${t('weekOf')} ${format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'MMM d', { locale: dateLocale })}`
+                  : format(currentDate, 'MMMM yyyy', { locale: dateLocale })}
             </span>
             <button
-              onClick={() => setCurrentDate((d) => addDays(d, view === 'day' ? 1 : 7))}
+              onClick={() => setCurrentDate((d) => {
+                  if (view === 'month') return addMonths(d, 1)
+                  return addDays(d, view === 'day' ? 1 : 7)
+              })}
               className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
             >
               {'>'}
@@ -554,6 +672,57 @@ export default function EmployeeDetails(): React.JSX.Element {
               )
             })}
           </div>
+        ) : view === 'month' ? (
+          <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-800">
+                 {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(dayName => (
+                     <div key={dayName} className="p-2 text-center text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/50 border-r border-slate-200 dark:border-slate-800 last:border-r-0">
+                         {dayName}
+                     </div>
+                 ))}
+                 {calendarDays.map((day, i) => {
+                   const dayShifts = shifts.filter((s) => isSameDay(parseISO(s.startTime), day))
+                   const isToday = isSameDay(day, new Date())
+                   const isCurrentMonth = day.getMonth() === currentDate.getMonth()
+                   
+                   return (
+                     <div
+                       key={day.toISOString()}
+                       className={cn(
+                           'min-h-[100px] p-2 transition-colors relative group border-r border-b border-slate-200 dark:border-slate-800',
+                           (i + 1) % 7 === 0 && 'border-r-0',
+                           isToday && 'bg-blue-50/50 dark:bg-blue-500/5',
+                           !isCurrentMonth && 'bg-slate-50/50 dark:bg-slate-900/20 opacity-60'
+                       )}
+                       onClick={() => {
+                            setEditingShift(null)
+                            setFormData({
+                              date: format(day, 'yyyy-MM-dd'),
+                              startTime: settings.openingTime,
+                              endTime: settings.closingTime
+                            })
+                            setIsModalOpen(true)
+                       }}
+                     >
+                       <div className="flex justify-between items-start mb-1">
+                           <span className={cn("text-xs font-medium", isToday ? "text-blue-600" : "text-slate-500")}>
+                               {format(day, 'd')}
+                           </span>
+                       </div>
+                       <div className="space-y-1">
+                           {dayShifts.map(shift => (
+                               <div key={shift.id} 
+                                    className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded px-1 py-0.5 truncate cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                                    onClick={(e) => openEditModal(shift, e)}
+                                    onContextMenu={(e) => handleContextMenu(e, shift)}
+                               >
+                                   {format(parseISO(shift.startTime), 'HH:mm')} - {format(parseISO(shift.endTime), 'HH:mm')}
+                               </div>
+                           ))}
+                       </div>
+                     </div>
+                   )
+                 })}
+             </div>
         ) : (
           <div className="p-4">
             <div className="space-y-2">
@@ -710,7 +879,61 @@ export default function EmployeeDetails(): React.JSX.Element {
     confirmText={t('confirm') || 'Confirm'}
     cancelText={t('cancel') || 'Cancel'}
   />
-  
+
+  {/* Weekly Hours Modal */}
+  {weeklyHoursModal.isOpen && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="w-full max-w-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    {t('editWeeklyHours') || 'Edit Weekly Hours'}
+                </h2>
+                <button onClick={() => setWeeklyHoursModal(prev => ({ ...prev, isOpen: false }))} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+                    <X className="h-5 w-5" />
+                </button>
+            </div>
+            <div className="mb-4">
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {t('weekOf') || 'Week of'} {format(weeklyHoursModal.weekStart, 'MMM d')}
+                </p>
+            </div>
+            <form onSubmit={async (e) => {
+                e.preventDefault()
+                const formData = new FormData(e.currentTarget)
+                const hours = parseFloat(formData.get('hours') as string)
+                if (!isNaN(hours)) {
+                    try {
+                        const weekStr = weeklyHoursModal.weekStart.toISOString()
+                        await window.api.employees.setWeeklyHours(Number(id), weekStr, hours)
+                        setWeeklyTarget(hours) // Optimistic update
+                        setWeeklyHoursModal(prev => ({ ...prev, isOpen: false }))
+                        fetchStats() // Refresh to be sure
+                    } catch (err) {
+                        console.error("Failed to save", err)
+                    }
+                }
+            }}>
+                <div className="space-y-2 mb-4">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        {t('agreedHours') || 'Agreed Hours'}
+                    </label>
+                    <input
+                        name="hours"
+                        type="number"
+                        step="0.5"
+                        defaultValue={weeklyHoursModal.currentHours}
+                        className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                        autoFocus
+                    />
+                </div>
+                <button type="submit" className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                    {t('save')}
+                </button>
+            </form>
+        </div>
+    </div>
+  )}
+
   {/* Context Menu */}
       {/* Context Menu */}
       {contextMenu && (

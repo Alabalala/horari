@@ -19,7 +19,10 @@ import {
   getSettings,
   updateSetting,
   getMonthlyHours,
-  setMonthlyHours
+  setMonthlyHours,
+  getWeeklyHours,
+  getAllWeeklyHours,
+  setWeeklyHours
 } from './db'
 
 function createWindow(): void {
@@ -107,6 +110,17 @@ app.whenReady().then(() => {
     })
     ipcMain.handle('set-monthly-hours', (_, { employeeId, month, hours }) => {
       return setMonthlyHours(employeeId, month, hours)
+    })
+
+    // Weekly Hours
+    ipcMain.handle('get-weekly-hours', (_, { employeeId, weekStart }) => {
+      return getWeeklyHours(employeeId, weekStart)
+    })
+    ipcMain.handle('get-all-weekly-hours', (_, { weekStart }) => {
+      return getAllWeeklyHours(weekStart)
+    })
+    ipcMain.handle('set-weekly-hours', (_, { employeeId, weekStart, hours }) => {
+      return setWeeklyHours(employeeId, weekStart, hours)
     })
 
     // Shift CRUD

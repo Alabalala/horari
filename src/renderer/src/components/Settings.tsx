@@ -63,8 +63,8 @@ export default function Settings(): React.JSX.Element {
                 onChange={(e) => updateSetting('theme', e.target.value)}
                 className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded pl-3 pr-8 py-1.5 text-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="dark">{t('dark')}</option>
-                <option value="light">{t('light')}</option>
+                <option value="dark" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('dark')}</option>
+                <option value="light" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('light')}</option>
               </select>
             </div>
           </div>

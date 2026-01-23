@@ -11,7 +11,10 @@ const api = {
     updateOrder: (id, order) => ipcRenderer.invoke('update-employee-order', { id, order }),
     delete: (id) => ipcRenderer.invoke('delete-employee', id),
     getMonthlyHours: (employeeId, month) => ipcRenderer.invoke('get-monthly-hours', { employeeId, month }),
-    setMonthlyHours: (employeeId, month, hours) => ipcRenderer.invoke('set-monthly-hours', { employeeId, month, hours })
+    setMonthlyHours: (employeeId, month, hours) => ipcRenderer.invoke('set-monthly-hours', { employeeId, month, hours }),
+    getWeeklyHours: (employeeId, weekStart) => ipcRenderer.invoke('get-weekly-hours', { employeeId, weekStart }),
+    getAllWeeklyHours: (weekStart) => ipcRenderer.invoke('get-all-weekly-hours', { weekStart }),
+    setWeeklyHours: (employeeId, weekStart, hours) => ipcRenderer.invoke('set-weekly-hours', { employeeId, weekStart, hours })
   },
   shifts: {
     get: (employeeId, startDate, endDate) =>

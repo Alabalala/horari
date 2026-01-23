@@ -7,11 +7,19 @@ export type Settings = {
   companyLogo?: string
   openingTime: string
   closingTime: string
+  visibleStats: {
+    monthlyTarget: boolean
+    weeklyTarget: boolean
+    monthlyDiff: boolean
+    weeklyDiff: boolean
+    totalWorked: boolean
+    lifetimeBalance: boolean
+  }
 }
 
 export type SettingsContextType = {
   settings: Settings
-  updateSetting: (key: keyof Settings, value: string) => Promise<void>
+  updateSetting: (key: keyof Settings, value: any) => Promise<void>
   t: (key: string) => string
   isLoading: boolean
 }

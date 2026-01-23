@@ -46,8 +46,9 @@ export default function Employees(): React.JSX.Element {
     role: '',
     department: '',
     status: 'Active',
-    defaultHours: 160
+    defaultHours: 40
   })
+  const [isNewDepartment, setIsNewDepartment] = useState(false)
 
   const fetchEmployees = async (): Promise<void> => {
     try {
@@ -72,7 +73,7 @@ export default function Employees(): React.JSX.Element {
       }
       setIsModalOpen(false)
       setEditingId(null)
-      setFormData({ name: '', role: '', department: '', status: 'Active', defaultHours: 160 })
+      setFormData({ name: '', role: '', department: '', status: 'Active', defaultHours: 40 })
       fetchEmployees()
     } catch (error) {
       console.error('Failed to save employee:', error)
@@ -93,8 +94,9 @@ export default function Employees(): React.JSX.Element {
       role: employee.role,
       department: employee.department,
       status: employee.status,
-      defaultHours: employee.defaultHours || 160
+      defaultHours: employee.defaultHours || 40
     })
+    setIsNewDepartment(false)
     setIsModalOpen(true)
   }
 
@@ -128,7 +130,8 @@ export default function Employees(): React.JSX.Element {
 
   const openAddModal = (): void => {
     setEditingId(null)
-    setFormData({ name: '', role: '', department: '', status: 'Active', defaultHours: 160 })
+    setFormData({ name: '', role: '', department: '', status: 'Active', defaultHours: 40 })
+    setIsNewDepartment(false)
     setIsModalOpen(true)
   }
 
@@ -148,8 +151,8 @@ export default function Employees(): React.JSX.Element {
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-50">{t('employees')}</h1>
-          <p className="mt-1 text-sm text-slate-400">{t('manageTeamMembers')}</p>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">{t('employees')}</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t('manageTeamMembers')}</p>
         </div>
         <button
           onClick={openAddModal}
@@ -159,46 +162,46 @@ export default function Employees(): React.JSX.Element {
         </button>
       </header>
 
-      <div className="flex flex-wrap items-center gap-4 bg-slate-900/50 p-4 rounded-md border border-slate-800">
-        <div className="flex items-center gap-2 text-slate-400">
+      <div className="flex flex-wrap items-center gap-4 bg-white dark:bg-slate-900/50 p-4 rounded-md border border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
           <Filter className="h-4 w-4" />
           <span className="text-sm font-medium">{t('filterBy') || 'Filter by'}:</span>
         </div>
 
         <select
-          className="bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-500"
+          className="bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-slate-200 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-500"
           value={departmentFilter}
           onChange={(e) => setDepartmentFilter(e.target.value)}
         >
-          <option value="all">{t('allDepartments') || 'All Departments'}</option>
+          <option value="all" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('allDepartments') || 'All Departments'}</option>
           {departments.map((d) => (
-            <option key={d} value={d}>
+            <option key={d} value={d} className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">
               {d}
             </option>
           ))}
         </select>
 
         <select
-          className="bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-500"
+          className="bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-slate-200 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-500"
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
         >
-          <option value="all">{t('allRoles') || 'All Roles'}</option>
+          <option value="all" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('allRoles') || 'All Roles'}</option>
           {roles.map((r) => (
-            <option key={r} value={r}>
+            <option key={r} value={r} className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">
               {r}
             </option>
           ))}
         </select>
 
         <select
-          className="bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-500"
+          className="bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-slate-200 text-sm rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:border-blue-500"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
         >
-          <option value="all">{t('allStatuses') || 'All Statuses'}</option>
+          <option value="all" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('allStatuses') || 'All Statuses'}</option>
           {statuses.map((s) => (
-            <option key={s} value={s}>
+            <option key={s} value={s} className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">
               {s}
             </option>
           ))}
@@ -211,105 +214,103 @@ export default function Employees(): React.JSX.Element {
               setRoleFilter('all')
               setStatusFilter('all')
             }}
-            className="text-xs text-blue-400 hover:text-blue-300 ml-auto"
+            className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 ml-auto"
           >
             {t('clearFilters') || 'Clear filters'}
           </button>
         )}
       </div>
 
-      <div className="rounded-md border border-slate-800 bg-slate-900/50">
-        <Table>
-          <TableHeader>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>ID</TableHead>
+            <TableHead>{t('name')}</TableHead>
+            <TableHead>{t('role')}</TableHead>
+            <TableHead>{t('department')}</TableHead>
+            <TableHead>{t('status')}</TableHead>
+            <TableHead className="text-right">{t('actions')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {filteredEmployees.length === 0 ? (
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>{t('name')}</TableHead>
-              <TableHead>{t('role')}</TableHead>
-              <TableHead>{t('department')}</TableHead>
-              <TableHead>{t('status')}</TableHead>
-              <TableHead className="text-right">{t('actions')}</TableHead>
+              <TableCell colSpan={6} className="text-center text-slate-500 dark:text-slate-400 py-8">
+                {t('noActiveEmployees')}
+              </TableCell>
             </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredEmployees.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-slate-500 py-8">
-                  {t('noActiveEmployees')}
+          ) : (
+            filteredEmployees.map((emp) => (
+              <TableRow
+                key={emp.id}
+                className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                onDoubleClick={() => navigate(`/employees/${emp.id}`)}
+              >
+                <TableCell className="text-slate-500 dark:text-slate-400">#{emp.id}</TableCell>
+                <TableCell className="font-medium text-slate-900 dark:text-slate-200">{emp.name}</TableCell>
+                <TableCell className="text-slate-700 dark:text-slate-300">{emp.role}</TableCell>
+                <TableCell className="text-slate-500 dark:text-slate-400">{emp.department}</TableCell>
+                <TableCell>
+                  <span
+                    className={cn(
+                      'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                      emp.status === 'Active'
+                        ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                        : emp.status === 'Inactive'
+                          ? 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                          : 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                    )}
+                  >
+                    {emp.status === 'Active'
+                      ? t('statusActive')
+                      : emp.status === 'Inactive'
+                        ? t('statusInactive')
+                        : emp.status === 'On Leave'
+                          ? t('statusOnLeave')
+                          : emp.status}
+                  </span>
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-2">
+                    <Link
+                      to={`/employees/${emp.id}`}
+                      className="p-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                      title={t('shifts')}
+                    >
+                      <Calendar className="h-4 w-4" />
+                    </Link>
+                    <button
+                      onClick={() => handleEdit(emp)}
+                      className="p-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                      title={t('editEmployee')}
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(emp.id)}
+                      className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                      title={t('delete')}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </TableCell>
               </TableRow>
-            ) : (
-              filteredEmployees.map((emp) => (
-                <TableRow
-                  key={emp.id}
-                  className="cursor-pointer hover:bg-slate-800/50"
-                  onDoubleClick={() => navigate(`/employees/${emp.id}`)}
-                >
-                  <TableCell className="text-slate-400">#{emp.id}</TableCell>
-                  <TableCell className="font-medium text-slate-200">{emp.name}</TableCell>
-                  <TableCell>{emp.role}</TableCell>
-                  <TableCell className="text-slate-300">{emp.department}</TableCell>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                        emp.status === 'Active'
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : emp.status === 'Inactive'
-                            ? 'bg-slate-700 text-slate-400'
-                            : 'bg-amber-500/10 text-amber-400'
-                      )}
-                    >
-                      {emp.status === 'Active'
-                        ? t('statusActive')
-                        : emp.status === 'Inactive'
-                          ? t('statusInactive')
-                          : emp.status === 'On Leave'
-                            ? t('statusOnLeave')
-                            : emp.status}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Link
-                        to={`/employees/${emp.id}`}
-                        className="p-2 text-slate-400 hover:text-blue-400 transition-colors"
-                        title={t('shifts')}
-                      >
-                        <Calendar className="h-4 w-4" />
-                      </Link>
-                      <button
-                        onClick={() => handleEdit(emp)}
-                        className="p-2 text-slate-400 hover:text-blue-400 transition-colors"
-                        title={t('editEmployee')}
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(emp.id)}
-                        className="p-2 text-slate-400 hover:text-red-400 transition-colors"
-                        title={t('delete')}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            ))
+          )}
+        </TableBody>
+      </Table>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-lg border border-slate-800 bg-slate-950 p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-full max-w-md rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                 {editingId ? t('editEmployee') : t('addEmployee')}
               </h2>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-white transition-colors"
+                className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -317,46 +318,88 @@ export default function Employees(): React.JSX.Element {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300">{t('name')}</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('name')}</label>
                 <input
                   type="text"
                   required
                   placeholder={t('placeholderName')}
-                  className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300">{t('role')}</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('role')}</label>
                 <input
                   type="text"
                   required
                   placeholder={t('placeholderRole')}
-                  className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   value={formData.role}
                   onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300">{t('department')}</label>
-                <input
-                  type="text"
-                  required
-                  placeholder={t('placeholderDepartment')}
-                  className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  value={formData.department}
-                  onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                />
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('department')}</label>
+                {isNewDepartment ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      placeholder={t('placeholderDepartment')}
+                      className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      value={formData.department}
+                      onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsNewDepartment(false)
+                        setFormData({ ...formData, department: '' })
+                      }}
+                      className="shrink-0 rounded-md border border-slate-200 dark:border-slate-800 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors"
+                      title={t('cancel')}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    required
+                    className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    value={formData.department}
+                    onChange={(e) => {
+                      if (e.target.value === '__new__') {
+                        setIsNewDepartment(true)
+                        setFormData({ ...formData, department: '' })
+                      } else {
+                        setFormData({ ...formData, department: e.target.value })
+                      }
+                    }}
+                  >
+                    <option value="" disabled className="bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400">
+                      {t('selectDepartment') || 'Select Department'}
+                    </option>
+                    {departments.map((d) => (
+                      <option key={d} value={d} className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">
+                        {d}
+                      </option>
+                    ))}
+                    <option value="__new__" className="bg-white dark:bg-slate-950 font-semibold text-blue-600 dark:text-blue-400">
+                      + {t('createNewDepartment') || 'Create New Department'}
+                    </option>
+                  </select>
+                )}
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300">
-                  {t('defaultMonthlyHours')}
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {t('defaultWeeklyHours') || 'Default Weekly Hours'}
                 </label>
                 <input
                   type="number"
                   required
-                  className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   value={formData.defaultHours}
                   onChange={(e) =>
                     setFormData({ ...formData, defaultHours: Number(e.target.value) })
@@ -364,15 +407,15 @@ export default function Employees(): React.JSX.Element {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300">{t('status')}</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('status')}</label>
                 <select
-                  className="w-full rounded-md border border-slate-800 bg-slate-900 pl-3 pr-8 py-2 text-sm text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 pl-3 pr-8 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   value={formData.status}
                   onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                 >
-                  <option value="Active">{t('statusActive')}</option>
-                  <option value="Inactive">{t('statusInactive')}</option>
-                  <option value="On Leave">{t('statusOnLeave')}</option>
+                  <option value="Active" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('statusActive')}</option>
+                  <option value="Inactive" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('statusInactive')}</option>
+                  <option value="On Leave" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('statusOnLeave')}</option>
                 </select>
               </div>
 
@@ -380,7 +423,7 @@ export default function Employees(): React.JSX.Element {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="rounded-md border border-slate-800 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-900 transition-colors"
+                  className="rounded-md border border-slate-200 dark:border-slate-800 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors"
                 >
                   {t('cancel')}
                 </button>

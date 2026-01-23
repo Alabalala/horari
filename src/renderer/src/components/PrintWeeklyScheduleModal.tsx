@@ -348,9 +348,9 @@ export default function PrintWeeklyScheduleModal({
                     onChange={(e) => setSelectedDepartment(e.target.value)}
                     className="pl-3 pr-8 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer outline-none"
                 >
-                    <option value="all">{t('allDepartments') || 'All Departments'}</option>
+                    <option value="all" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('allDepartments') || 'All Departments'}</option>
                     {departments.map(dept => (
-                        <option key={dept} value={dept}>{dept}</option>
+                        <option key={dept} value={dept} className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{dept}</option>
                     ))}
                 </select>
                 <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none" />

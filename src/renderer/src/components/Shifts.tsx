@@ -43,6 +43,7 @@ import ConfirmModal from './ConfirmModal'
 import { DatePicker } from './DatePicker'
 import PrintWeekModal from './PrintWeekModal'
 import PrintWeeklyScheduleModal from './PrintWeeklyScheduleModal'
+import { StatsVisibilityMenu } from './StatsVisibilityMenu'
 
 // Component for the timeline view of a single employee row
 const ShiftTimelineContainer = ({
@@ -102,7 +103,7 @@ const ShiftTimelineContainer = ({
        
        {/* Hover Add Button (centered or following mouse? Centered is easier for now) */}
        <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 pointer-events-none">
-          <div className="bg-blue-600 text-white rounded-full p-1 shadow-sm">
+          <div className="bg-blue-600 text-white rounded-full w-6 h-6 flex-none flex items-center justify-center shadow-sm aspect-square">
              <Plus className="h-3 w-3" />
           </div>
        </div>
@@ -175,6 +176,22 @@ export default function Shifts(): React.JSX.Element {
   })
 
   const [isPrintWeeklyModalOpen, setIsPrintWeeklyModalOpen] = useState(false)
+
+  // Weekly Hours Override State
+  const [weeklyHoursOverrides, setWeeklyHoursOverrides] = useState<Record<string, Record<number, number>>>({})
+  const [weeklyHoursModal, setWeeklyHoursModal] = useState<{
+    isOpen: boolean
+    employeeId: number
+    employeeName: string
+    weekStart: Date
+    currentHours: number
+  }>({
+    isOpen: false,
+    employeeId: 0,
+    employeeName: '',
+    weekStart: new Date(),
+    currentHours: 40
+  })
 
   // Validate form data effect
   useEffect(() => {
@@ -260,6 +277,28 @@ export default function Shifts(): React.JSX.Element {
       // Re-fetch shifts with range
       const rangeShifts = await window.api.shifts.getAll(startStr, endStr)
       
+      // Fetch weekly hours for month view and week view
+      const overrides: Record<string, Record<number, number>> = {}
+      if (view === 'month' || view === 'week') {
+        const rangeStart = view === 'month' ? startOfMonth(currentDate) : startOfWeek(currentDate, { weekStartsOn: 1 })
+        const rangeEnd = view === 'month' ? endOfMonth(currentDate) : endOfWeek(currentDate, { weekStartsOn: 1 })
+        
+        const weeks = eachWeekOfInterval({ start: rangeStart, end: rangeEnd }, { weekStartsOn: 1 })
+        await Promise.all(weeks.map(async (weekStart) => {
+             const weekStr = weekStart.toISOString()
+             try {
+                const hours = await window.api.employees.getAllWeeklyHours(weekStr)
+                overrides[weekStr] = {}
+                hours.forEach(h => {
+                    overrides[weekStr][h.employeeId] = h.hours
+                })
+             } catch (e) {
+                console.error("Failed to fetch weekly hours for", weekStr, e)
+             }
+        }))
+      }
+      setWeeklyHoursOverrides(overrides)
+
       setEmployees(emps as Employee[])
       setShifts(rangeShifts as Shift[])
     } catch (error) {
@@ -588,61 +627,59 @@ export default function Shifts(): React.JSX.Element {
     const monthEnd = endOfMonth(currentDate)
     const weeks = eachWeekOfInterval({ start: monthStart, end: monthEnd }, { weekStartsOn: 1 })
     
-    const weeklyHours = weeks.map(weekStart => {
+    const weeklyData = weeks.map(weekStart => {
         const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 })
-        // Clip week to month boundaries for accurate "this month" reporting?
-        // Usually weekly hours are just for the week. But if the week spans months, 
-        // user might want full week or just the part in this month. 
-        // "Total hours each eE has done per week" -> usually full week.
         
         const weekShifts = shifts.filter(s => 
             s.employeeId === emp.id && 
             parseISO(s.startTime) >= weekStart && 
             parseISO(s.endTime) <= endOfDay(weekEnd)
         )
-        return weekShifts.reduce((acc, s) => acc + getShiftDuration(s), 0)
+        const worked = weekShifts.reduce((acc, s) => acc + getShiftDuration(s), 0)
+        
+        const weekStr = weekStart.toISOString()
+        const override = weeklyHoursOverrides[weekStr]?.[emp.id]
+        const agreed = override !== undefined ? override : (emp.defaultHours || 40)
+        
+        return {
+            weekStart,
+            worked,
+            agreed,
+            diff: worked - agreed
+        }
     })
 
     // 2. Total Worked (This Month)
-    const monthShifts = shifts.filter(s => 
-        s.employeeId === emp.id && 
-        parseISO(s.startTime) >= monthStart && 
-        parseISO(s.endTime) <= endOfDay(monthEnd)
-    )
-    const totalWorked = monthShifts.reduce((acc, s) => acc + getShiftDuration(s), 0)
+    const totalWorked = weeklyData.reduce((acc, w) => acc + w.worked, 0)
 
     // 3. Agreed Hours (Monthly)
-    const agreed = emp.defaultHours || 160 // Default to 160 if not set
+    const totalAgreed = weeklyData.reduce((acc, w) => acc + w.agreed, 0)
 
     // 4. Difference (This Month)
-    const diff = totalWorked - agreed
+    const diff = totalWorked - totalAgreed
 
     // 5. Total Owed (Lifetime Balance)
-    // Formula: Sum(All Shift Durations) - (Months Active * Agreed Monthly Hours)
-    // We need to estimate "Months Active". 
-    // Heuristic: From first shift date to NOW.
     const empShifts = shifts.filter(s => s.employeeId === emp.id)
     let lifetimeBalance = 0
     
     if (empShifts.length > 0) {
-        // Find earliest shift
         const sortedShifts = [...empShifts].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
         const firstShiftDate = parseISO(sortedShifts[0].startTime)
-        const targetDate = endOfMonth(currentDate)
+        // Use end of current month's last week as target
+        const targetDate = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 })
         
-        // Calculate full months elapsed since first shift up to the target month
-        const monthsDiff = differenceInMonths(targetDate, startOfMonth(firstShiftDate)) + 1
+        const weeksDiff = Math.max(0, Math.ceil(differenceInDays(targetDate, startOfWeek(firstShiftDate, { weekStartsOn: 1 })) / 7))
         
-        // Filter shifts up to the target date
         const relevantShifts = empShifts.filter(s => parseISO(s.startTime) <= targetDate)
-        
         const totalLifetimeWorked = relevantShifts.reduce((acc, s) => acc + getShiftDuration(s), 0)
-        const totalLifetimeAgreed = monthsDiff * agreed
+        
+        const defaultWeekly = emp.defaultHours || 40
+        const totalLifetimeAgreed = weeksDiff * defaultWeekly
         
         lifetimeBalance = totalLifetimeWorked - totalLifetimeAgreed
     }
 
-    return { weeklyHours, totalWorked, agreed, diff, lifetimeBalance, weeks }
+    return { weeklyData, totalWorked, totalAgreed, diff, lifetimeBalance, weeks }
   }
 
   const getShiftsForCell = (employeeId: number, date: Date) => {
@@ -765,24 +802,27 @@ export default function Shifts(): React.JSX.Element {
             value={departmentFilter}
             onChange={(e) => setDepartmentFilter(e.target.value)}
           >
-            <option value="all">{t('allDepartments')}</option>
+            <option value="all" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('allDepartments')}</option>
             {departments.map((dept) => (
-              <option key={dept} value={dept}>
+              <option key={dept} value={dept} className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">
                 {dept}
               </option>
             ))}
           </select>
         </div>
         
-        {view === 'week' && (
-          <button
-            onClick={() => setIsPrintWeeklyModalOpen(true)}
-            className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm font-medium text-slate-700 dark:text-slate-200 ml-auto"
-          >
-            <Printer className="h-4 w-4" />
-            {t('printSchedule') || "Print Schedule"}
-          </button>
-        )}
+        <div className="flex items-center gap-2 ml-auto">
+          <StatsVisibilityMenu />
+          {view === 'week' && (
+            <button
+              onClick={() => setIsPrintWeeklyModalOpen(true)}
+              className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm font-medium text-slate-700 dark:text-slate-200"
+            >
+              <Printer className="h-4 w-4" />
+              {t('printSchedule') || "Print Schedule"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Shifts Grid */}
@@ -794,6 +834,12 @@ export default function Shifts(): React.JSX.Element {
             <div className="w-48 flex-shrink-0 p-4 font-medium text-slate-500 dark:text-slate-400">
               {t('employee')}
             </div>
+            
+            {view === 'week' && (
+                <div className="w-40 flex-shrink-0 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">
+                    {t('summary') || 'Summary'}
+                </div>
+            )}
             
             {view === 'day' ? (
                 <div className="flex-1 flex relative h-14">
@@ -814,10 +860,18 @@ export default function Shifts(): React.JSX.Element {
                             {t('week')} {i + 1}
                         </div>
                     ))}
-                    <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('total')}</div>
-                    <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('agreed')}</div>
-                    <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('diff')}</div>
-                    <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('owed')}</div>
+                    {settings.visibleStats.totalWorked && (
+                        <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('totalWorked') || 'Total Worked'}</div>
+                    )}
+                    {settings.visibleStats.monthlyTarget && (
+                        <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('targetMonthly') || 'Monthly Target'}</div>
+                    )}
+                    {settings.visibleStats.monthlyDiff && (
+                        <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('monthDiff') || 'Monthly Diff'}</div>
+                    )}
+                    {settings.visibleStats.lifetimeBalance && (
+                        <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('lifetimeBalance') || 'Lifetime Balance'}</div>
+                    )}
                 </div>
             ) : (
                 days.map(day => (
@@ -882,6 +936,52 @@ export default function Shifts(): React.JSX.Element {
                                 )}
                               </div>
 
+                              {view === 'week' && (() => {
+                                  const stats = getEmployeeMonthStats(emp)
+                                  const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
+                                  // Find week data that matches the current week start
+                                  const weekData = stats.weeklyData.find(w => isSameDay(w.weekStart, currentWeekStart))
+                                  
+                                  if (!weekData) return <div className="w-40 border-r border-slate-200 dark:border-slate-800"></div>
+
+                                  return (
+                                    <div className="w-40 flex-shrink-0 flex flex-col justify-center p-2 border-r border-slate-200 dark:border-slate-800 text-xs gap-1">
+                                        {settings.visibleStats.weeklyTarget && (
+                                            <div 
+                                                className="flex justify-between items-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 rounded px-1 py-0.5 transition-colors"
+                                                onClick={() => setWeeklyHoursModal({
+                                                    isOpen: true,
+                                                    employeeId: emp.id,
+                                                    employeeName: emp.name,
+                                                    weekStart: weekData.weekStart,
+                                                    currentHours: weekData.agreed
+                                                })}
+                                                title={t('editWeeklyHours') || 'Edit Weekly Hours'}
+                                            >
+                                                <span className="text-slate-500">{t('targetWeekly') || 'Weekly Target'}:</span>
+                                                <span className="font-medium text-blue-600 dark:text-blue-400 border-b border-dashed border-blue-400">{weekData.agreed}h</span>
+                                            </div>
+                                        )}
+                                        {settings.visibleStats.weeklyDiff && (
+                                            <div className="flex justify-between items-center px-1">
+                                                <span className="text-slate-500">{t('weekDiff') || 'Weekly Diff'}:</span>
+                                                <span className={cn("font-bold", weekData.diff < 0 ? "text-red-500" : "text-green-500")}>
+                                                    {weekData.diff > 0 ? '+' : ''}{weekData.diff.toFixed(1)}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {settings.visibleStats.monthlyDiff && (
+                                            <div className="flex justify-between items-center pt-1 border-t border-slate-100 dark:border-slate-800 px-1 mt-1">
+                                                <span className="text-slate-500">{t('monthDiff') || 'Monthly Diff'}:</span>
+                                                <span className={cn("font-bold", stats.diff < 0 ? "text-red-500" : "text-green-500")}>
+                                                    {stats.diff > 0 ? '+' : ''}{stats.diff.toFixed(1)}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                  )
+                              })()}
+
                               {/* Days Grid or Timeline */}
                               {view === 'day' ? (
                                  <ShiftTimelineContainer 
@@ -900,23 +1000,47 @@ export default function Shifts(): React.JSX.Element {
                                      const stats = getEmployeeMonthStats(emp)
                                      return (
                                         <div className="flex-1 flex h-full items-stretch">
-                                            {stats.weeklyHours.map((h, i) => (
-                                                <div key={i} className="w-24 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm">
-                                                    {h.toFixed(1)}
+                                            {stats.weeklyData.map((w, i) => (
+                                                <div 
+                                                    key={i} 
+                                                    className="w-24 border-l border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center p-1 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                                                    onClick={() => setWeeklyHoursModal({
+                                                        isOpen: true,
+                                                        employeeId: emp.id,
+                                                        employeeName: emp.name,
+                                                        weekStart: w.weekStart,
+                                                        currentHours: w.agreed
+                                                    })}
+                                                    title="Click to edit agreed hours"
+                                                >
+                                                    <div className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                                                        {w.worked.toFixed(1)} / {w.agreed}
+                                                    </div>
+                                                    <div className={cn("text-[10px] font-bold", w.diff < 0 ? "text-red-500" : "text-green-500")}>
+                                                        {w.diff > 0 ? '+' : ''}{w.diff.toFixed(1)}
+                                                    </div>
                                                 </div>
                                             ))}
-                                            <div className="w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-medium">
-                                                {stats.totalWorked.toFixed(1)}
-                                            </div>
-                                            <div className="w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm text-slate-500">
-                                                {stats.agreed}
-                                            </div>
-                                            <div className={cn("w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-medium", stats.diff < 0 ? "text-red-500" : "text-green-500")}>
-                                                {stats.diff > 0 ? '+' : ''}{stats.diff.toFixed(1)}
-                                            </div>
-                                            <div className={cn("w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-bold", stats.lifetimeBalance < 0 ? "text-red-600" : "text-green-600")}>
-                                                {stats.lifetimeBalance > 0 ? '+' : ''}{stats.lifetimeBalance.toFixed(1)}
-                                            </div>
+                                            {settings.visibleStats.totalWorked && (
+                                                <div className="w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-medium">
+                                                    {stats.totalWorked.toFixed(1)}
+                                                </div>
+                                            )}
+                                            {settings.visibleStats.monthlyTarget && (
+                                                <div className="w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm text-slate-500">
+                                                    {stats.totalAgreed}
+                                                </div>
+                                            )}
+                                            {settings.visibleStats.monthlyDiff && (
+                                                <div className={cn("w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-medium", stats.diff < 0 ? "text-red-500" : "text-green-500")}>
+                                                    {stats.diff > 0 ? '+' : ''}{stats.diff.toFixed(1)}
+                                                </div>
+                                            )}
+                                            {settings.visibleStats.lifetimeBalance && (
+                                                <div className={cn("w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-bold", stats.lifetimeBalance < 0 ? "text-red-600" : "text-green-600")}>
+                                                    {stats.lifetimeBalance > 0 ? '+' : ''}{stats.lifetimeBalance.toFixed(1)}
+                                                </div>
+                                            )}
                                         </div>
                                     )
                                  })()
@@ -945,7 +1069,7 @@ export default function Shifts(): React.JSX.Element {
                                           ))}
                                           {/* Hover Add Button */}
                                           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
-                                            <div className="bg-blue-600 text-white rounded-full p-1 shadow-sm">
+                                            <div className="bg-blue-600 text-white rounded-full w-6 h-6 flex-none flex items-center justify-center shadow-sm aspect-square">
                                               <Plus className="h-3 w-3" />
                                             </div>
                                           </div>
@@ -1086,6 +1210,65 @@ export default function Shifts(): React.JSX.Element {
     </div>
   )}
   
+      {/* Weekly Hours Modal */}
+      {weeklyHoursModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="w-full max-w-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-2xl">
+                <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                        {t('editWeeklyHours') || 'Edit Weekly Hours'}
+                    </h2>
+                    <button onClick={() => setWeeklyHoursModal(prev => ({ ...prev, isOpen: false }))} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+                        <X className="h-5 w-5" />
+                    </button>
+                </div>
+                <div className="mb-4">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                        {weeklyHoursModal.employeeName} - {t('weekOf') || 'Week of'} {format(weeklyHoursModal.weekStart, 'MMM d')}
+                    </p>
+                </div>
+                <form onSubmit={async (e) => {
+                    e.preventDefault()
+                    const formData = new FormData(e.currentTarget)
+                    const hours = parseFloat(formData.get('hours') as string)
+                    if (!isNaN(hours)) {
+                        try {
+                            const weekStr = weeklyHoursModal.weekStart.toISOString()
+                            await window.api.employees.setWeeklyHours(weeklyHoursModal.employeeId, weekStr, hours)
+                            setWeeklyHoursOverrides(prev => ({
+                                ...prev,
+                                [weekStr]: {
+                                    ...(prev[weekStr] || {}),
+                                    [weeklyHoursModal.employeeId]: hours
+                                }
+                            }))
+                            setWeeklyHoursModal(prev => ({ ...prev, isOpen: false }))
+                        } catch (err) {
+                            console.error("Failed to save", err)
+                        }
+                    }
+                }}>
+                    <div className="space-y-2 mb-4">
+                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            {t('agreedHours') || 'Agreed Hours'}
+                        </label>
+                        <input
+                            name="hours"
+                            type="number"
+                            step="0.5"
+                            defaultValue={weeklyHoursModal.currentHours}
+                            className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                            autoFocus
+                        />
+                    </div>
+                    <button type="submit" className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                        {t('save')}
+                    </button>
+                </form>
+            </div>
+        </div>
+      )}
+
   <ConfirmModal
     isOpen={confirmState.isOpen}
     title={confirmState.title}

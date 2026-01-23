@@ -101,7 +101,20 @@ const translations = {
     printSchedule: 'Print Schedule',
     totalStaff: 'Hours without staff',
     preview: 'Preview',
-    weeklySchedule: 'Weekly Schedule'
+    weeklySchedule: 'Weekly Schedule',
+    defaultWeeklyHours: 'Default Weekly Hours',
+    selectDepartment: 'Select Department',
+    editWeeklyHours: 'Edit Weekly Hours',
+    target: 'Target',
+    targetWeekly: 'Weekly Target',
+    targetMonthly: 'Monthly Target',
+    summary: 'Summary',
+    weekDiff: 'Weekly Diff',
+    monthDiff: 'Monthly Diff',
+    totalWorked: 'Total Worked',
+    lifetimeBalance: 'Lifetime Balance',
+    viewOptions: 'View Options',
+    visibleStats: 'Visible Stats'
   },
   es: {
     dashboard: 'Panel de control',
@@ -202,7 +215,21 @@ const translations = {
     print: 'Imprimir',
     printSchedule: 'Imprimir horario',
     preview: 'Vista previa',
-    weeklySchedule: 'Horario Semanal'
+    weeklySchedule: 'Horario semanal',
+    defaultWeeklyHours: 'Horas semanales predeterminadas',
+    createNewDepartment: 'Crear nuevo departamento',
+    selectDepartment: 'Seleccionar departamento',
+    editWeeklyHours: 'Editar horas semanales',
+    target: 'Objetivo',
+    targetWeekly: 'Objetivo Semanal',
+    targetMonthly: 'Objetivo Mensual',
+    summary: 'Resumen',
+    weekDiff: 'Dif. Semanal',
+    monthDiff: 'Dif. Mensual',
+    totalWorked: 'Total Trabajado',
+    lifetimeBalance: 'Balance Total',
+    viewOptions: 'Opciones de vista',
+    visibleStats: 'Estadísticas visibles'
   }
 }
 
@@ -213,7 +240,15 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
     companyName: 'My Company',
     companyLogo: '',
     openingTime: '08:00',
-    closingTime: '20:00'
+    closingTime: '20:00',
+    visibleStats: {
+      monthlyTarget: true,
+      weeklyTarget: true,
+      monthlyDiff: true,
+      weeklyDiff: true,
+      totalWorked: true,
+      lifetimeBalance: true
+    }
   })
   const [isLoading, setIsLoading] = useState(true)
 
@@ -230,8 +265,25 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
   const loadSettings = async (): Promise<void> => {
     try {
       const stored = await window.api.settings.getAll()
+      // Parse visibleStats if it exists
+      let parsedStats = {}
+      if (stored.visibleStats) {
+        try {
+          parsedStats = JSON.parse(stored.visibleStats)
+        } catch (e) {
+          console.error('Failed to parse visibleStats', e)
+        }
+      }
+      
       // Merge with defaults to ensure all keys exist
-      setSettings((prev) => ({ ...prev, ...stored }))
+      setSettings((prev) => ({ 
+        ...prev, 
+        ...stored,
+        visibleStats: {
+          ...prev.visibleStats,
+          ...parsedStats
+        }
+      }))
     } catch (error) {
       console.error('Failed to load settings:', error)
     } finally {
@@ -239,11 +291,13 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
     }
   }
 
-  const updateSetting = async (key: keyof Settings, value: string): Promise<void> => {
+  const updateSetting = async (key: keyof Settings, value: any): Promise<void> => {
     try {
       // Optimistic update
       setSettings((prev) => ({ ...prev, [key]: value }))
-      await window.api.settings.update(key, value)
+      
+      const valueToStore = typeof value === 'object' ? JSON.stringify(value) : value
+      await window.api.settings.update(key, valueToStore)
     } catch (error) {
       console.error(`Failed to update setting ${key}:`, error)
       // Revert on error (could be improved)

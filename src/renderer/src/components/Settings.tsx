@@ -295,7 +295,6 @@ export default function Settings(): React.JSX.Element {
                 {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'error') && (
                     <button
                         onClick={checkForUpdates}
-                        disabled={updateStatus === 'checking'}
                         className="flex items-center px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded text-sm hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors text-slate-700 dark:text-slate-300"
                     >
                         <RefreshCw className="w-4 h-4 mr-2" />

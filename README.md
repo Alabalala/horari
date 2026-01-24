@@ -37,7 +37,7 @@ Horari is built with a modern, robust stack ensuring performance and maintainabi
 
 ```bash
 # Clone the repository
-git clone https://github.com/YourGitHubUsername/horari.git
+git clone https://github.com/Alabalala/horari.git
 
 # Install dependencies
 pnpm install

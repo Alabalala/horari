@@ -5,6 +5,10 @@
   "main": "./out/main/index.js",
   "author": "alvaroalarcon.com",
   "homepage": "https://electron-vite.org",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Alabalala/horari.git"
+  },
   "scripts": {
     "lint": "eslint --cache .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",

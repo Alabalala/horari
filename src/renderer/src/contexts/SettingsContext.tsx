@@ -134,7 +134,11 @@ const translations = {
     targetDate: 'Target Date',
     selectAnyDayInTargetWeek: 'Select any day in the target week',
     selectAnyDayInTargetMonth: 'Select any day in the target month',
-    copy: 'Copy'
+    copy: 'Copy',
+    compactView: 'Compact View',
+    days: 'Days',
+    daysPerImage: 'Days per Image',
+    auto: 'Auto'
   },
   es: {
     dashboard: 'Panel de control',
@@ -269,7 +273,11 @@ const translations = {
     automaticUpdates: 'Actualizaciones automáticas',
     automaticUpdatesDesc: 'Descargar actualizaciones automáticamente cuando estén disponibles',
     selectAnyDayInTargetMonth: 'Seleccione cualquier día en el mes de destino',
-    copy: 'Copiar'
+    copy: 'Copiar',
+    compactView: 'Vista compacta',
+    days: 'Días',
+    daysPerImage: 'Días por imagen',
+    auto: 'Auto'
   }
 }
 

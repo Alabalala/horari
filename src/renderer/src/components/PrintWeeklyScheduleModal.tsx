@@ -42,6 +42,8 @@ export default function PrintWeeklyScheduleModal({
   const [visibleDays, setVisibleDays] = useState<string[]>([])
   const [isDaysOpen, setIsDaysOpen] = useState(false)
   const [isCompact, setIsCompact] = useState(false)
+  const [daysPerImage, setDaysPerImage] = useState<number | 'auto'>('auto')
+  const [isDaysPerImageOpen, setIsDaysPerImageOpen] = useState(false)
   
   const [isGenerating, setIsGenerating] = useState(false)
   const [pages, setPages] = useState<Date[][]>([])
@@ -49,6 +51,7 @@ export default function PrintWeeklyScheduleModal({
   const dayRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
   const deptDropdownRef = useRef<HTMLDivElement>(null)
   const daysDropdownRef = useRef<HTMLDivElement>(null)
+  const daysPerImageDropdownRef = useRef<HTMLDivElement>(null)
 
   if (!isOpen) return null
 
@@ -75,6 +78,9 @@ export default function PrintWeeklyScheduleModal({
       if (daysDropdownRef.current && !daysDropdownRef.current.contains(event.target as Node)) {
         setIsDaysOpen(false)
       }
+      if (daysPerImageDropdownRef.current && !daysPerImageDropdownRef.current.contains(event.target as Node)) {
+        setIsDaysPerImageOpen(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -85,7 +91,7 @@ export default function PrintWeeklyScheduleModal({
   // Reset pages on open or filter change
   useEffect(() => {
     setPages([])
-  }, [isOpen, selectedDepartments, visibleDays, isCompact, currentDate])
+  }, [isOpen, selectedDepartments, visibleDays, isCompact, currentDate, daysPerImage])
 
   // Pagination Logic
   useEffect(() => {
@@ -96,42 +102,53 @@ export default function PrintWeeklyScheduleModal({
       if (!printRef.current) return
 
       const newPages: Date[][] = []
-      let currentPage: Date[] = []
-      let currentHeight = 0
-      const PAGE_HEIGHT_MM = 297 // A4
-      const MARGIN_MM = 10 // Top + Bottom margin (Reduced from 20 to 10 for more space)
-      const CONTENT_HEIGHT_MM = PAGE_HEIGHT_MM - MARGIN_MM
-      const PX_PER_MM = 3.78 // Approx for screen
 
-      // Header Height (approx)
-      const headerEl = printRef.current.querySelector('[data-print-target="header"]')
-      const headerHeight = headerEl ? headerEl.clientHeight : 100
-      
-      currentHeight += headerHeight
-
-      weekDays.forEach(day => {
-        const dayEl = dayRefs.current[day.toISOString()]
-        if (dayEl) {
-          const dayHeight = dayEl.clientHeight + (isCompact ? 4 : 8) // + gap
-          
-          if (currentHeight + dayHeight > (CONTENT_HEIGHT_MM * PX_PER_MM)) {
-            // New Page
-            if (currentPage.length > 0) newPages.push(currentPage)
-            currentPage = [day]
-            currentHeight = dayHeight // No header on subsequent pages
-          } else {
-            currentPage.push(day)
-            currentHeight += dayHeight
+      if (daysPerImage !== 'auto') {
+          // Fixed days per page mode
+          const daysCount = typeof daysPerImage === 'number' ? daysPerImage : 1
+          for (let i = 0; i < weekDays.length; i += daysCount) {
+              newPages.push(weekDays.slice(i, i + daysCount))
           }
-        }
-      })
+      } else {
+          // Auto (Height-based) mode
+          let currentPage: Date[] = []
+          let currentHeight = 0
+          const PAGE_HEIGHT_MM = 297 // A4
+          const MARGIN_MM = 10 // Top + Bottom margin (Reduced from 20 to 10 for more space)
+          const CONTENT_HEIGHT_MM = PAGE_HEIGHT_MM - MARGIN_MM
+          const PX_PER_MM = 3.78 // Approx for screen
+
+          // Header Height (approx)
+          const headerEl = printRef.current.querySelector('[data-print-target="header"]')
+          const headerHeight = headerEl ? headerEl.clientHeight : 100
+          
+          currentHeight += headerHeight
+
+          weekDays.forEach(day => {
+            const dayEl = dayRefs.current[day.toISOString()]
+            if (dayEl) {
+              const dayHeight = dayEl.clientHeight + (isCompact ? 4 : 8) // + gap
+              
+              if (currentHeight + dayHeight > (CONTENT_HEIGHT_MM * PX_PER_MM)) {
+                // New Page
+                if (currentPage.length > 0) newPages.push(currentPage)
+                currentPage = [day]
+                currentHeight = dayHeight // No header on subsequent pages
+              } else {
+                currentPage.push(day)
+                currentHeight += dayHeight
+              }
+            }
+          })
+          
+          if (currentPage.length > 0) newPages.push(currentPage)
+      }
       
-      if (currentPage.length > 0) newPages.push(currentPage)
       setPages(newPages)
     }, 100)
 
     return () => clearTimeout(timer)
-  }, [weekDays, pages.length, selectedDepartments, shifts, isCompact])
+  }, [weekDays, pages.length, selectedDepartments, shifts, isCompact, daysPerImage])
 
   // Filter employees
   const filteredEmployees = employees.filter(emp => 
@@ -388,7 +405,12 @@ export default function PrintWeeklyScheduleModal({
                     allowTaint: true
                 })
                 const imgData = canvas.toDataURL('image/png')
-                pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight)
+                
+                // Calculate height to maintain aspect ratio
+                const imgProps = pdf.getImageProperties(imgData)
+                const pdfImgHeight = (imgProps.height * pageWidth) / imgProps.width
+                
+                pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pdfImgHeight)
             }
 
             if ((window as any).api && (window as any).api.utils && (window as any).api.utils.saveExport) {
@@ -524,6 +546,54 @@ export default function PrintWeeklyScheduleModal({
                                 )
                             })}
                         </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Days Per Image Dropdown */}
+            <div className="relative" ref={daysPerImageDropdownRef}>
+                <button
+                    onClick={() => setIsDaysPerImageOpen(!isDaysPerImageOpen)}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                >
+                    <span>{t('daysPerImage') || 'Days per Image'}: {daysPerImage === 'auto' ? (t('auto') || 'Auto') : daysPerImage}</span>
+                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                </button>
+                
+                {isDaysPerImageOpen && (
+                    <div className="absolute top-full right-0 mt-1 w-40 bg-white rounded-lg shadow-xl border border-slate-200 z-50 py-1 overflow-hidden">
+                        <button
+                            onClick={() => { setDaysPerImage('auto'); setIsDaysPerImageOpen(false) }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-left hover:bg-slate-50 transition-colors"
+                        >
+                            <div className={cn(
+                                "w-4 h-4 mr-3 rounded border flex items-center justify-center transition-colors",
+                                daysPerImage === 'auto' ? "bg-blue-600 border-blue-600" : "border-slate-300"
+                            )}>
+                                {daysPerImage === 'auto' && <Check className="h-3 w-3 text-white" />}
+                            </div>
+                            <span className={daysPerImage === 'auto' ? "text-slate-900 font-medium" : "text-slate-600"}>
+                                {t('auto') || 'Auto'}
+                            </span>
+                        </button>
+                        
+                        {[1, 2, 3, 4, 5, 6, 7].map(num => (
+                            <button
+                                key={num}
+                                onClick={() => { setDaysPerImage(num); setIsDaysPerImageOpen(false) }}
+                                className="flex items-center w-full px-4 py-2 text-sm text-left hover:bg-slate-50 transition-colors"
+                            >
+                                <div className={cn(
+                                    "w-4 h-4 mr-3 rounded border flex items-center justify-center transition-colors",
+                                    daysPerImage === num ? "bg-blue-600 border-blue-600" : "border-slate-300"
+                                )}>
+                                    {daysPerImage === num && <Check className="h-3 w-3 text-white" />}
+                                </div>
+                                <span className={daysPerImage === num ? "text-slate-900 font-medium" : "text-slate-600"}>
+                                    {num}
+                                </span>
+                            </button>
+                        ))}
                     </div>
                 )}
             </div>
@@ -689,7 +759,10 @@ export default function PrintWeeklyScheduleModal({
                         ref={pageIndex === 0 ? printRef : undefined} // Keep ref on first page for export (partial logic, export might need adjustment)
                         data-print-page
                         className="bg-white shadow-lg w-[210mm] min-w-[210mm] p-4 flex flex-col gap-4 select-none pointer-events-none relative" 
-                        style={{ height: '297mm', minHeight: '297mm' }}
+                        style={{ 
+                            height: daysPerImage === 'auto' ? '297mm' : 'auto', 
+                            minHeight: daysPerImage === 'auto' ? '297mm' : 'auto' 
+                        }}
                     >
                          {/* Header only on first page */}
                          {pageIndex === 0 && (
@@ -757,7 +830,7 @@ const DayContent = ({
     const HEADER_HEIGHT = isCompact ? 28 : 40
     const NAME_WIDTH = isCompact ? '10rem' : '16rem'
     const FONT_SIZE_NAME = isCompact ? 'text-[10px]' : 'text-xs'
-    const FONT_SIZE_SHIFT = isCompact ? 'text-[9px]' : 'text-[10px]'
+    const FONT_SIZE_SHIFT = isCompact ? 'text-[10px]' : 'text-xs'
 
     return (
         <div ref={ref} data-print-target="day" className="break-inside-avoid">
@@ -790,7 +863,7 @@ const DayContent = ({
                                  key={hour} 
                                  className={cn(
                                     "flex-1 flex items-center justify-center font-medium text-slate-400",
-                                    isCompact ? "text-[9px]" : "text-[10px]",
+                                    FONT_SIZE_SHIFT,
                                     i !== 0 && "border-l border-slate-100"
                                  )}
                              >
@@ -842,17 +915,23 @@ const DayContent = ({
                                         
                                         const startH = (sStart.getTime() - dayStart.getTime()) / (1000 * 60 * 60)
                                         const endH = (sEnd.getTime() - dayStart.getTime()) / (1000 * 60 * 60)
+                                        const durationHours = endH - startH
                                         
                                         const left = Math.max(0, ((startH - startHour) / totalViewHours) * 100)
                                         const width = Math.min(100 - left, ((endH - startH) / totalViewHours) * 100)
+                                        
+                                        // Conditional font size for short shifts
+                                        const shiftFontSize = durationHours < 2 
+                                            ? (isCompact ? 'text-[8px]' : 'text-[9px]')
+                                            : FONT_SIZE_SHIFT
 
                                         return (
                                             <div 
                                                 key={shift.id}
-                                                className="absolute top-0.5 bottom-0.5 bg-blue-500/90 rounded-sm border border-blue-600/20 flex items-center justify-center overflow-visible z-10 print:bg-blue-500 print:text-white"
+                                                className="absolute top-0.5 bottom-0.5 bg-blue-600/90 rounded-sm border border-blue-700/20 flex items-center justify-center overflow-visible z-10 print:bg-blue-600 print:text-white"
                                                 style={{ left: `${left}%`, width: `${width}%` }}
                                             >
-                                                <span className={cn("font-bold text-white whitespace-nowrap drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] px-1 flex items-center gap-1", FONT_SIZE_SHIFT)}>
+                                                <span className={cn("font-bold text-white whitespace-nowrap drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] px-1 flex items-center gap-1", shiftFontSize)}>
                                                     <span>{format(sStart, 'HH:mm')} - {format(sEnd, 'HH:mm')}</span>
                                                 </span>
                                             </div>
@@ -877,7 +956,7 @@ const DayContent = ({
                                     key={hour} 
                                     className={cn(
                                         "flex-1 flex items-center justify-center font-bold",
-                                        isCompact ? "text-[9px]" : "text-[10px]",
+                                        FONT_SIZE_SHIFT,
                                         i !== 0 && "border-l border-slate-200",
                                         count === 0 ? "bg-red-100 text-red-700" : "text-slate-400"
                                     )}

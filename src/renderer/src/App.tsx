@@ -7,6 +7,7 @@ import Employees from './components/Employees'
 import EmployeeDetails from './components/EmployeeDetails'
 import Shifts from './components/Shifts'
 import Settings from './components/Settings'
+import UpdateNotifier from './components/UpdateNotifier'
 import { SettingsProvider } from './contexts/SettingsContext'
 import { useSettings } from './hooks/useSettings'
 

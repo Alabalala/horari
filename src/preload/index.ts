@@ -28,8 +28,14 @@ const api = {
     getAll: () => ipcRenderer.invoke('get-settings'),
     update: (key, value) => ipcRenderer.invoke('update-setting', { key, value })
   },
+  updater: {
+    check: () => ipcRenderer.invoke('check-for-updates'),
+    download: () => ipcRenderer.invoke('start-download'),
+    install: () => ipcRenderer.invoke('quit-and-install')
+  },
   utils: {
-    saveExport: (data, filename) => ipcRenderer.invoke('save-export', { data, filename })
+    saveExport: (data, filename) => ipcRenderer.invoke('save-export', { data, filename }),
+    getAppVersion: () => ipcRenderer.invoke('get-app-version')
   }
 }
 

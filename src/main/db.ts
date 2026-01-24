@@ -92,7 +92,8 @@ const defaultSettings = {
   theme: 'dark',
   companyName: 'My Company',
   openingTime: '08:00',
-  closingTime: '20:00'
+  closingTime: '20:00',
+  autoUpdate: 'true'
 }
 
 const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')

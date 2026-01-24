@@ -29,10 +29,10 @@ import {
   X,
   Save,
   Trash2,
-  Calendar,
   GripVertical,
   AlertTriangle,
-  Printer
+  Printer,
+  Copy
 } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 import ShiftContextMenu from './ShiftContextMenu'
@@ -44,6 +44,7 @@ import { DatePicker } from './DatePicker'
 import PrintWeekModal from './PrintWeekModal'
 import PrintWeeklyScheduleModal from './PrintWeeklyScheduleModal'
 import { StatsVisibilityMenu } from './StatsVisibilityMenu'
+import CopyShiftsModal from './CopyShiftsModal'
 
 // Component for the timeline view of a single employee row
 const ShiftTimelineContainer = ({
@@ -176,8 +177,9 @@ export default function Shifts(): React.JSX.Element {
   })
 
   const [isPrintWeeklyModalOpen, setIsPrintWeeklyModalOpen] = useState(false)
-
-  // Weekly Hours Override State
+  const [isCopyModalOpen, setIsCopyModalOpen] = useState(false)
+  
+  // Weekly Hours Overrides State
   const [weeklyHoursOverrides, setWeeklyHoursOverrides] = useState<Record<string, Record<number, number>>>({})
   const [weeklyHoursModal, setWeeklyHoursModal] = useState<{
     isOpen: boolean
@@ -780,6 +782,14 @@ export default function Shifts(): React.JSX.Element {
               {t('month')}
             </button>
           </div>
+          
+          <button
+            onClick={() => setIsCopyModalOpen(true)}
+            className="flex items-center gap-2 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+            title={t('copyShifts') || 'Copy Shifts'}
+          >
+            <Copy className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
@@ -1269,8 +1279,16 @@ export default function Shifts(): React.JSX.Element {
         </div>
       )}
 
-  <ConfirmModal
-    isOpen={confirmState.isOpen}
+  <CopyShiftsModal
+        isOpen={isCopyModalOpen}
+        onClose={() => setIsCopyModalOpen(false)}
+        sourceDate={currentDate}
+        view={view}
+        onSuccess={fetchData}
+      />
+      
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
     title={confirmState.title}
     message={confirmState.message}
     type={confirmState.type}

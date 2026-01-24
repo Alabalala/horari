@@ -66,8 +66,60 @@ app.whenReady().then(() => {
 
   // Check for updates
   if (!is.dev) {
+    const settings = getSettings()
+    autoUpdater.autoDownload = settings.autoUpdate === 'true'
     autoUpdater.checkForUpdatesAndNotify()
   }
+
+  // Auto Updater Events
+  autoUpdater.on('checking-for-update', () => {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('updater-event', { type: 'checking' })
+    })
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('updater-event', { type: 'available', info })
+    })
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('updater-event', { type: 'not-available' })
+    })
+  })
+
+  autoUpdater.on('error', (err) => {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('updater-event', { type: 'error', error: err.message })
+    })
+  })
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('updater-event', { type: 'progress', progress: progressObj })
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('updater-event', { type: 'downloaded', info })
+    })
+  })
+
+  // Auto Updater IPC
+  ipcMain.handle('check-for-updates', () => {
+    return autoUpdater.checkForUpdates()
+  })
+
+  ipcMain.handle('start-download', () => {
+    return autoUpdater.downloadUpdate()
+  })
+
+  ipcMain.handle('quit-and-install', () => {
+    autoUpdater.quitAndInstall(false, true)
+  })
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -145,6 +197,9 @@ app.whenReady().then(() => {
       return getSettings()
     })
     ipcMain.handle('update-setting', (_, { key, value }) => {
+      if (key === 'autoUpdate') {
+        autoUpdater.autoDownload = value === 'true'
+      }
       return updateSetting(key, value)
     })
 
@@ -172,6 +227,10 @@ app.whenReady().then(() => {
         console.error('Failed to save export:', error)
         throw error
       }
+    })
+
+    ipcMain.handle('get-app-version', () => {
+      return app.getVersion()
     })
 
     console.log('Employee and Shift IPC handlers registered')

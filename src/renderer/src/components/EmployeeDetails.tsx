@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Plus, Save, X, Trash2, Clock, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Plus, Save, X, Trash2, AlertTriangle, Copy } from 'lucide-react'
 import {
   format,
   startOfDay,
@@ -22,6 +22,7 @@ import { useSettings } from '../hooks/useSettings'
 import { StatsVisibilityMenu } from './StatsVisibilityMenu'
 import ShiftContextMenu from './ShiftContextMenu'
 import ConfirmModal from './ConfirmModal'
+import CopyShiftsModal from './CopyShiftsModal'
 
 type Employee = {
   id: number
@@ -47,6 +48,7 @@ export default function EmployeeDetails(): React.JSX.Element {
   const [view, setView] = useState<'day' | 'week' | 'month'>('week')
   const [currentDate, setCurrentDate] = useState(new Date())
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isCopyModalOpen, setIsCopyModalOpen] = useState(false)
   const [editingShift, setEditingShift] = useState<Shift | null>(null)
   const [monthlyHours, setMonthlyHours] = useState<number>(160)
   const [totalWorkedHours, setTotalWorkedHours] = useState<number>(0)
@@ -574,6 +576,15 @@ export default function EmployeeDetails(): React.JSX.Element {
 
           <div className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
             <StatsVisibilityMenu />
+            
+            <button
+              onClick={() => setIsCopyModalOpen(true)}
+              className="flex items-center gap-2 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+              title={t('copyShifts') || 'Copy Shifts'}
+            >
+              <Copy className="h-4 w-4" />
+            </button>
+
             <button
               onClick={() => setCurrentDate((d) => {
                   if (view === 'month') return addMonths(d, -1)
@@ -869,8 +880,17 @@ export default function EmployeeDetails(): React.JSX.Element {
     </div>
   )}
 
-  <ConfirmModal
-    isOpen={confirmState.isOpen}
+  <CopyShiftsModal
+        isOpen={isCopyModalOpen}
+        onClose={() => setIsCopyModalOpen(false)}
+        sourceDate={currentDate}
+        view={view}
+        employeeId={Number(id)}
+        onSuccess={fetchShifts}
+      />
+      
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
     title={confirmState.title}
     message={confirmState.message}
     type={confirmState.type}

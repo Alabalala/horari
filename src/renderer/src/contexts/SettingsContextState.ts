@@ -7,6 +7,7 @@ export type Settings = {
   companyLogo?: string
   openingTime: string
   closingTime: string
+  autoUpdate?: string
   visibleStats: {
     monthlyTarget: boolean
     weeklyTarget: boolean

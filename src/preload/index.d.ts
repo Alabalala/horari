@@ -48,8 +48,14 @@ declare global {
         getAll: () => Promise<Record<string, string>>
         update: (key: string, value: string) => Promise<void>
       }
+      updater: {
+        check: () => Promise<any>
+        download: () => Promise<any>
+        install: () => Promise<void>
+      }
       utils: {
         saveExport: (data: string, filename: string) => Promise<{ success: boolean; filePath?: string; canceled?: boolean }>
+        getAppVersion: () => Promise<string>
       }
     }
   }

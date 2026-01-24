@@ -14,7 +14,7 @@ import {
   areIntervalsOverlapping
 } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { X, Download, ChevronDown, Loader2 } from 'lucide-react'
+import { X, Download, ChevronDown, Loader2, Check, Settings2 } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 import { Employee, Shift } from '../types'
 import html2canvas from 'html2canvas'
@@ -37,11 +37,18 @@ export default function PrintWeeklyScheduleModal({
   shifts
 }: PrintWeeklyScheduleModalProps): React.JSX.Element | null {
   const { t, settings } = useSettings()
-  const [selectedDepartment, setSelectedDepartment] = useState('all')
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>(['all'])
+  const [isDeptOpen, setIsDeptOpen] = useState(false)
+  const [visibleDays, setVisibleDays] = useState<string[]>([])
+  const [isDaysOpen, setIsDaysOpen] = useState(false)
+  const [isCompact, setIsCompact] = useState(false)
+  
   const [isGenerating, setIsGenerating] = useState(false)
   const [pages, setPages] = useState<Date[][]>([])
   const printRef = useRef<HTMLDivElement>(null)
   const dayRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
+  const deptDropdownRef = useRef<HTMLDivElement>(null)
+  const daysDropdownRef = useRef<HTMLDivElement>(null)
 
   if (!isOpen) return null
 
@@ -50,12 +57,35 @@ export default function PrintWeeklyScheduleModal({
   // Get week days
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
   const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 })
-  const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
+  const allWeekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
+
+  // Initialize visible days
+  useEffect(() => {
+    if (visibleDays.length === 0 && allWeekDays.length > 0) {
+        setVisibleDays(allWeekDays.map(d => d.toISOString()))
+    }
+  }, [isOpen, currentDate])
+
+  // Close dropdowns on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (deptDropdownRef.current && !deptDropdownRef.current.contains(event.target as Node)) {
+        setIsDeptOpen(false)
+      }
+      if (daysDropdownRef.current && !daysDropdownRef.current.contains(event.target as Node)) {
+        setIsDaysOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const weekDays = allWeekDays.filter(d => visibleDays.includes(d.toISOString()))
 
   // Reset pages on open or filter change
   useEffect(() => {
     setPages([])
-  }, [isOpen, selectedDepartment, currentDate])
+  }, [isOpen, selectedDepartments, visibleDays, isCompact, currentDate])
 
   // Pagination Logic
   useEffect(() => {
@@ -82,7 +112,7 @@ export default function PrintWeeklyScheduleModal({
       weekDays.forEach(day => {
         const dayEl = dayRefs.current[day.toISOString()]
         if (dayEl) {
-          const dayHeight = dayEl.clientHeight + 8 // + gap (Reduced from 16 to 8)
+          const dayHeight = dayEl.clientHeight + (isCompact ? 4 : 8) // + gap
           
           if (currentHeight + dayHeight > (CONTENT_HEIGHT_MM * PX_PER_MM)) {
             // New Page
@@ -101,15 +131,56 @@ export default function PrintWeeklyScheduleModal({
     }, 100)
 
     return () => clearTimeout(timer)
-  }, [weekDays, pages.length, selectedDepartment, shifts])
+  }, [weekDays, pages.length, selectedDepartments, shifts, isCompact])
 
   // Filter employees
   const filteredEmployees = employees.filter(emp => 
-    selectedDepartment === 'all' || emp.department === selectedDepartment
+    selectedDepartments.includes('all') || selectedDepartments.includes(emp.department)
   )
 
   // Get unique departments
   const departments = Array.from(new Set(employees.map(e => e.department).filter(Boolean)))
+
+  // Handlers for multiselect
+  const toggleDepartment = (dept: string) => {
+    if (dept === 'all') {
+        setSelectedDepartments(['all'])
+    } else {
+        let newSelection = [...selectedDepartments]
+        if (newSelection.includes('all')) {
+            newSelection = [...departments]
+        }
+        
+        if (newSelection.includes(dept)) {
+            newSelection = newSelection.filter(d => d !== dept)
+        } else {
+            newSelection.push(dept)
+        }
+        
+        if (newSelection.length === 0) {
+             setSelectedDepartments([])
+        } else if (newSelection.length === departments.length) {
+            setSelectedDepartments(['all'])
+        } else {
+            setSelectedDepartments(newSelection)
+        }
+    }
+  }
+
+  const toggleDay = (dayIso: string) => {
+    if (visibleDays.includes(dayIso)) {
+        // Prevent unselecting the last day? Or allow empty? Allow empty is fine but weird.
+        if (visibleDays.length > 1) {
+            setVisibleDays(visibleDays.filter(d => d !== dayIso))
+        }
+    } else {
+        // Add back in correct order
+        const newDays = [...visibleDays, dayIso]
+        // Sort by actual date
+        newDays.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+        setVisibleDays(newDays)
+    }
+  }
 
   // Business Hours Logic (copied from Shifts.tsx to match)
   const parseHour = (timeStr: string, defaultHour: number): number => {
@@ -250,31 +321,43 @@ export default function PrintWeeklyScheduleModal({
                 maxWidth = Math.max(maxWidth, canvas.width)
             }
 
-            // Create master canvas
-            masterCanvas = document.createElement('canvas')
-            masterCanvas.width = maxWidth
-            masterCanvas.height = totalHeight
-            const ctx = masterCanvas.getContext('2d')
-            
-            if (ctx) {
-                let currentY = 0
-                for (const canvas of canvases) {
-                    ctx.drawImage(canvas, 0, currentY)
-                    currentY += canvas.height
-                }
-                
-                const dataUrl = masterCanvas.toDataURL('image/png')
+            if (canvases.length > 1) {
+                // Multiple pages: Save as separate files
+                const dataUrls = canvases.map(c => c.toDataURL('image/png'))
                 
                 if ((window as any).api && (window as any).api.utils && (window as any).api.utils.saveExport) {
-                    const result = await (window as any).api.utils.saveExport(dataUrl, `${filename}.png`)
+                    const result = await (window as any).api.utils.saveExport(dataUrls, `${filename}.png`)
                     if (result && result.canceled) {
-                        // User canceled, do nothing
+                        // User canceled
                     }
-                } else {
-                    const link = document.createElement('a')
-                    link.download = `${filename}.png`
-                    link.href = dataUrl
-                    link.click()
+                }
+            } else {
+                // Single page: Save as one file
+                masterCanvas = document.createElement('canvas')
+                masterCanvas.width = maxWidth
+                masterCanvas.height = totalHeight
+                const ctx = masterCanvas.getContext('2d')
+                
+                if (ctx) {
+                    let currentY = 0
+                    for (const canvas of canvases) {
+                        ctx.drawImage(canvas, 0, currentY)
+                        currentY += canvas.height
+                    }
+                    
+                    const dataUrl = masterCanvas.toDataURL('image/png')
+                    
+                    if ((window as any).api && (window as any).api.utils && (window as any).api.utils.saveExport) {
+                        const result = await (window as any).api.utils.saveExport(dataUrl, `${filename}.png`)
+                        if (result && result.canceled) {
+                            // User canceled
+                        }
+                    } else {
+                        const link = document.createElement('a')
+                        link.download = `${filename}.png`
+                        link.href = dataUrl
+                        link.click()
+                    }
                 }
             }
         } else {
@@ -342,18 +425,107 @@ export default function PrintWeeklyScheduleModal({
           </div>
           
           <div className="flex items-center gap-4">
-            <div className="relative">
-                <select
-                    value={selectedDepartment}
-                    onChange={(e) => setSelectedDepartment(e.target.value)}
-                    className="pl-3 pr-8 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer outline-none"
+            {/* Compact Toggle */}
+            <button
+                onClick={() => setIsCompact(!isCompact)}
+                className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-md border text-sm font-medium transition-colors",
+                    isCompact 
+                        ? "bg-slate-900 text-white border-slate-900" 
+                        : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+                )}
+            >
+                {isCompact ? <Check className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
+                {t('compactView') || 'Compact'}
+            </button>
+
+            {/* Days Dropdown */}
+            <div className="relative" ref={daysDropdownRef}>
+                <button
+                    onClick={() => setIsDaysOpen(!isDaysOpen)}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
                 >
-                    <option value="all" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('allDepartments') || 'All Departments'}</option>
-                    {departments.map(dept => (
-                        <option key={dept} value={dept} className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{dept}</option>
-                    ))}
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none" />
+                    <span>{t('days') || 'Days'} ({visibleDays.length})</span>
+                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                </button>
+                
+                {isDaysOpen && (
+                    <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg shadow-xl border border-slate-200 z-50 py-1 overflow-hidden">
+                        {allWeekDays.map(day => {
+                            const isSelected = visibleDays.includes(day.toISOString())
+                            return (
+                                <button
+                                    key={day.toISOString()}
+                                    onClick={() => toggleDay(day.toISOString())}
+                                    className="flex items-center w-full px-4 py-2 text-sm text-left hover:bg-slate-50 transition-colors"
+                                >
+                                    <div className={cn(
+                                        "w-4 h-4 mr-3 rounded border flex items-center justify-center transition-colors",
+                                        isSelected ? "bg-blue-600 border-blue-600" : "border-slate-300"
+                                    )}>
+                                        {isSelected && <Check className="h-3 w-3 text-white" />}
+                                    </div>
+                                    <span className={isSelected ? "text-slate-900 font-medium" : "text-slate-600"}>
+                                        {format(day, 'EEEE', { locale: dateLocale })}
+                                    </span>
+                                </button>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Departments Dropdown */}
+            <div className="relative" ref={deptDropdownRef}>
+                <button
+                    onClick={() => setIsDeptOpen(!isDeptOpen)}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                >
+                    <span>{t('departments') || 'Departments'} ({selectedDepartments.includes('all') ? 'All' : selectedDepartments.length})</span>
+                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                </button>
+                
+                {isDeptOpen && (
+                    <div className="absolute top-full right-0 mt-1 w-64 bg-white rounded-lg shadow-xl border border-slate-200 z-50 py-1 overflow-hidden">
+                        <button
+                            onClick={() => toggleDepartment('all')}
+                            className="flex items-center w-full px-4 py-2 text-sm text-left hover:bg-slate-50 transition-colors border-b border-slate-100"
+                        >
+                            <div className={cn(
+                                "w-4 h-4 mr-3 rounded border flex items-center justify-center transition-colors",
+                                selectedDepartments.includes('all') ? "bg-blue-600 border-blue-600" : "border-slate-300"
+                            )}>
+                                {selectedDepartments.includes('all') && <Check className="h-3 w-3 text-white" />}
+                            </div>
+                            <span className={selectedDepartments.includes('all') ? "text-slate-900 font-medium" : "text-slate-600"}>
+                                {t('allDepartments') || 'All Departments'}
+                            </span>
+                        </button>
+                        
+                        <div className="max-h-[300px] overflow-y-auto">
+                            {departments.map(dept => {
+                                const isChecked = selectedDepartments.includes('all') || selectedDepartments.includes(dept)
+                                return (
+                                    <button
+                                        key={dept}
+                                        onClick={() => toggleDepartment(dept)}
+                                        className="flex items-center w-full px-4 py-2 text-sm text-left hover:bg-slate-50 transition-colors"
+                                    >
+                                        <div className={cn(
+                                            "w-4 h-4 mr-3 rounded border flex items-center justify-center transition-colors",
+                                            isChecked ? "bg-blue-600 border-blue-600" : "border-slate-300"
+                                        )}>
+                                            {isChecked && <Check className="h-3 w-3 text-white" />}
+                                        </div>
+                                        <span className={isChecked ? "text-slate-900 font-medium" : "text-slate-600"}>
+                                            {dept}
+                                        </span>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="flex items-center gap-2 border-l pl-4 border-slate-300">
@@ -504,6 +676,7 @@ export default function PrintWeeklyScheduleModal({
                                 safeEndHour={safeEndHour}
                                 totalViewHours={totalViewHours}
                                 t={t}
+                                isCompact={isCompact}
                              />
                         ))}
                     </div>
@@ -523,19 +696,19 @@ export default function PrintWeeklyScheduleModal({
                             <div data-print-target="header" className="flex items-start justify-between border-b-2 border-slate-800 pb-4">
                                 <div className="flex items-center gap-6">
                                     {settings.companyLogo && (
-                                        <img src={settings.companyLogo} alt="Logo" className="h-16 w-auto object-contain" />
+                                        <img src={settings.companyLogo} alt="Logo" className={cn("w-auto object-contain", isCompact ? "h-12" : "h-16")} />
                                     )}
                                     <div>
-                                        <h1 className="text-3xl font-bold text-slate-900 uppercase tracking-tight">
+                                        <h1 className={cn("font-bold text-slate-900 uppercase tracking-tight", isCompact ? "text-xl" : "text-3xl")}>
                                             {t('weeklySchedule') || 'Weekly Schedule'}
                                         </h1>
-                                        <p className="text-lg text-slate-600 mt-1">
+                                        <p className={cn("text-slate-600 mt-1", isCompact ? "text-sm" : "text-lg")}>
                                             {t('weekOf') || 'Week of'} <span className="font-semibold text-slate-900">{format(weekStart, 'MMMM d, yyyy', { locale: dateLocale })}</span> - <span className="font-semibold text-slate-900">{format(weekEnd, 'MMMM d, yyyy', { locale: dateLocale })}</span>
                                         </p>
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    <div className="text-xl font-bold text-slate-900">{settings.companyName}</div>
+                                    <div className={cn("font-bold text-slate-900", isCompact ? "text-lg" : "text-xl")}>{settings.companyName}</div>
                                     <div className="text-sm text-slate-500 mt-1">
                                         {t('generatedOn') || 'Generated on'}: {format(new Date(), 'PP', { locale: dateLocale })}
                                     </div>
@@ -543,23 +716,11 @@ export default function PrintWeeklyScheduleModal({
                             </div>
                          )}
 
-                         <div className="flex flex-col gap-4">
+                         <div className={cn("flex flex-col", isCompact ? "gap-2" : "gap-4")}>
                             {pageDays.map(day => (
                                 <DayContent 
                                     key={day.toISOString()} 
                                     day={day} 
-                                    // No ref needed here for measurement, but maybe for export? 
-                                    // The export logic queries by data-print-target="day". 
-                                    // Since we render multiple pages, we need to make sure export logic finds ALL days.
-                                    // BUT: The export logic uses `printRef.current` as root.
-                                    // If we have multiple page divs, printRef only points to the first one!
-                                    // FIX: We need a wrapper ref for export? Or render hidden full list for export?
-                                    // Actually, export logic re-renders via html2canvas on `element`.
-                                    // If we want to export ALL pages, we need to iterate over all page refs.
-                                    // However, the current export logic (pdf) iterates over DAYS.
-                                    // If days are split across DOM nodes, `printRef.current.querySelectorAll` will only find days in the first page.
-                                    // So we need to change how we export too, OR render a hidden "Full View" for export purposes?
-                                    // Let's attach data-print-target="day" here too.
                                     dateLocale={dateLocale}
                                     hours={hours}
                                     filteredEmployees={filteredEmployees}
@@ -569,6 +730,7 @@ export default function PrintWeeklyScheduleModal({
                                     safeEndHour={safeEndHour}
                                     totalViewHours={totalViewHours}
                                     t={t}
+                                    isCompact={isCompact}
                                 />
                             ))}
                          </div>
@@ -589,21 +751,25 @@ export default function PrintWeeklyScheduleModal({
 
 // Extracted Component for Reusability (Measurement vs Render)
 const DayContent = ({ 
-    day, ref, dateLocale, hours, filteredEmployees, getShiftsForDayAndEmployee, getStaffCount, startHour, safeEndHour, totalViewHours, t 
+    day, ref, dateLocale, hours, filteredEmployees, getShiftsForDayAndEmployee, getStaffCount, startHour, safeEndHour, totalViewHours, t, isCompact
 }: any) => {
+    const ROW_HEIGHT = isCompact ? 24 : 32
+    const HEADER_HEIGHT = isCompact ? 28 : 40
+    const NAME_WIDTH = isCompact ? '10rem' : '16rem'
+    const FONT_SIZE_NAME = isCompact ? 'text-[10px]' : 'text-xs'
+    const FONT_SIZE_SHIFT = isCompact ? 'text-[9px]' : 'text-[10px]'
+
     return (
         <div ref={ref} data-print-target="day" className="break-inside-avoid">
             {/* Compact Day Header - Flex Replacement */}
-            <div className="flex items-center w-full mb-2 h-[40px] break-inside-avoid">
+            <div className={cn("flex items-center w-full mb-1 break-inside-avoid", isCompact ? "h-[28px]" : "h-[40px]")}>
                 <div className="shrink-0 pr-2">
-                    <div className="bg-slate-800 text-white text-sm font-bold rounded uppercase text-center w-[50px] flex items-center justify-center"
-                        style={{ height: '28px' }}>
+                    <div className={cn("bg-slate-800 text-white font-bold rounded uppercase text-center flex items-center justify-center", isCompact ? "text-xs w-[40px] h-[20px]" : "text-sm w-[50px] h-[28px]")}>
                         {format(day, 'EEE', { locale: dateLocale })}
                     </div>
                 </div>
                 <div className="shrink-0 pr-2">
-                    <div className="text-sm font-semibold text-slate-900 block w-[30px] text-center flex items-center justify-center"
-                        style={{ height: '28px' }}>
+                    <div className={cn("font-semibold text-slate-900 block text-center flex items-center justify-center", isCompact ? "text-xs w-[24px] h-[20px]" : "text-sm w-[30px] h-[28px]")}>
                         {format(day, 'd', { locale: dateLocale })}
                     </div>
                 </div>
@@ -616,14 +782,15 @@ const DayContent = ({
             <div className="relative border border-slate-200 rounded-md bg-slate-50/50">
                 
                 {/* Time Header - Flex Layout */}
-                <div className="flex w-full h-8 border-b border-slate-200 bg-white" style={{ height: '32px' }}>
-                     <div className="shrink-0 border-r border-slate-100" style={{ width: '16rem' }}></div> 
+                <div className="flex w-full border-b border-slate-200 bg-white" style={{ height: `${ROW_HEIGHT}px` }}>
+                     <div className="shrink-0 border-r border-slate-100" style={{ width: NAME_WIDTH }}></div> 
                      <div className="flex-1 flex">
                         {hours.map((hour: number, i: number) => (
                              <div 
                                  key={hour} 
                                  className={cn(
-                                    "flex-1 flex items-center justify-center text-[10px] font-medium text-slate-400",
+                                    "flex-1 flex items-center justify-center font-medium text-slate-400",
+                                    isCompact ? "text-[9px]" : "text-[10px]",
                                     i !== 0 && "border-l border-slate-100"
                                  )}
                              >
@@ -638,17 +805,17 @@ const DayContent = ({
                     {filteredEmployees.map((emp: any) => {
                         const dayShifts = getShiftsForDayAndEmployee(day, emp.id)
                         return (
-                            <div key={emp.id} className="flex h-8 group hover:bg-slate-50 relative" style={{ height: '32px' }}>
+                            <div key={emp.id} className="flex group hover:bg-slate-50 relative" style={{ height: `${ROW_HEIGHT}px` }}>
                                 {/* Standard Flexbox Layout (Restored) */}
                                 <div 
                                     className="shrink-0 flex items-center px-3 border-r border-slate-100 bg-white"
                                     style={{ 
-                                        width: '16rem', 
-                                        height: '32px'
+                                        width: NAME_WIDTH, 
+                                        height: `${ROW_HEIGHT}px`
                                     }} 
                                 > 
                                     {/* No padding hacks, no line-height locks. Just clean text. */}
-                                    <span className="text-xs font-medium text-slate-700 truncate w-full" title={emp.name}> 
+                                    <span className={cn("font-medium text-slate-700 truncate w-full", FONT_SIZE_NAME)} title={emp.name}> 
                                         {emp.name}
                                     </span>
                                 </div>
@@ -682,10 +849,10 @@ const DayContent = ({
                                         return (
                                             <div 
                                                 key={shift.id}
-                                                className="absolute top-1 bottom-1 bg-blue-500/90 rounded-sm border border-blue-600/20 flex items-center justify-center overflow-visible z-10 print:bg-blue-500 print:text-white"
+                                                className="absolute top-0.5 bottom-0.5 bg-blue-500/90 rounded-sm border border-blue-600/20 flex items-center justify-center overflow-visible z-10 print:bg-blue-500 print:text-white"
                                                 style={{ left: `${left}%`, width: `${width}%` }}
                                             >
-                                                <span className="text-[10px] font-bold text-white whitespace-nowrap drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] px-1 flex items-center gap-1">
+                                                <span className={cn("font-bold text-white whitespace-nowrap drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] px-1 flex items-center gap-1", FONT_SIZE_SHIFT)}>
                                                     <span>{format(sStart, 'HH:mm')} - {format(sEnd, 'HH:mm')}</span>
                                                 </span>
                                             </div>
@@ -698,8 +865,8 @@ const DayContent = ({
                 </div>
                 
                 {/* Coverage Gaps / Total Staff - Flex Layout */}
-                <div className="flex w-full h-8 bg-slate-50 border-t border-slate-200 break-inside-avoid" style={{ height: '32px' }}>
-                    <div className="shrink-0 flex items-center px-3 border-r border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider" style={{ width: '16rem' }}>
+                <div className="flex w-full bg-slate-50 border-t border-slate-200 break-inside-avoid" style={{ height: `${ROW_HEIGHT}px` }}>
+                    <div className={cn("shrink-0 flex items-center px-3 border-r border-slate-200 font-bold text-slate-500 uppercase tracking-wider", FONT_SIZE_SHIFT)} style={{ width: NAME_WIDTH }}>
                         {t('totalStaff') || 'Total Staff'}
                     </div>
                     <div className="flex-1 flex">
@@ -709,7 +876,8 @@ const DayContent = ({
                                 <div 
                                     key={hour} 
                                     className={cn(
-                                        "flex-1 flex items-center justify-center text-[10px] font-bold",
+                                        "flex-1 flex items-center justify-center font-bold",
+                                        isCompact ? "text-[9px]" : "text-[10px]",
                                         i !== 0 && "border-l border-slate-200",
                                         count === 0 ? "bg-red-100 text-red-700" : "text-slate-400"
                                     )}

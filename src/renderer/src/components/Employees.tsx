@@ -94,7 +94,7 @@ export default function Employees(): React.JSX.Element {
       role: employee.role,
       department: employee.department,
       status: employee.status,
-      defaultHours: employee.defaultHours || 40
+      defaultHours: employee.defaultHours ?? 40
     })
     setIsNewDepartment(false)
     setIsModalOpen(true)

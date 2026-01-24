@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
-import { join } from 'path'
+import { join, dirname, basename } from 'path'
 import fs from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
@@ -216,13 +216,32 @@ app.whenReady().then(() => {
 
         if (!filePath) return { canceled: true }
         
-        // Remove header (data:image/png;base64, or data:application/pdf;base64,)
-        const base64Data = data.replace(/^data:.*?;base64,/, "")
-        const buffer = Buffer.from(base64Data, 'base64')
-        
-        await fs.writeFile(filePath, buffer)
-        await shell.openPath(filePath)
-        return { success: true, filePath }
+        if (Array.isArray(data)) {
+            // Handle multiple files
+            const dir = dirname(filePath)
+            const baseName = basename(filePath, `.${ext}`)
+            
+            for (let i = 0; i < data.length; i++) {
+                const partData = data[i]
+                const partFilename = `${baseName}-${i + 1}.${ext}`
+                const partPath = join(dir, partFilename)
+                
+                const base64Data = partData.replace(/^data:.*?;base64,/, "")
+                const buffer = Buffer.from(base64Data, 'base64')
+                await fs.writeFile(partPath, buffer)
+            }
+            // Open the directory instead of the file
+            await shell.openPath(dir)
+            return { success: true, filePath: dir }
+        } else {
+            // Remove header (data:image/png;base64, or data:application/pdf;base64,)
+            const base64Data = data.replace(/^data:.*?;base64,/, "")
+            const buffer = Buffer.from(base64Data, 'base64')
+            
+            await fs.writeFile(filePath, buffer)
+            await shell.openPath(filePath)
+            return { success: true, filePath }
+        }
       } catch (error) {
         console.error('Failed to save export:', error)
         throw error

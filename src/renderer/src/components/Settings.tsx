@@ -115,6 +115,27 @@ export default function Settings(): React.JSX.Element {
                 <option value="light" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('light')}</option>
               </select>
             </div>
+
+            {/* Show Sidebar Calendar */}
+            <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4 mt-4">
+              <div className="flex flex-col">
+                <label className="text-slate-700 dark:text-slate-300 font-medium">
+                  {t('showSidebarCalendar') || 'Show Sidebar Calendar'}
+                </label>
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  {t('showSidebarCalendarDesc') || 'Display a mini calendar in the navigation sidebar'}
+                </span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={settings.showSidebarCalendar === 'true'}
+                  onChange={(e) => updateSetting('showSidebarCalendar', String(e.target.checked))}
+                  className="sr-only peer" 
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
           </div>
         </div>
 

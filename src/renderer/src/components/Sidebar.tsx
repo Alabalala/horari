@@ -4,6 +4,7 @@ import { NavLink } from 'react-router-dom'
 import { cn } from '@renderer/lib/utils'
 import { useSettings } from '../hooks/useSettings'
 import logo from '../assets/logo.png'
+import MiniCalendar from './MiniCalendar'
 
 type SidebarItemProps = {
   icon: React.ReactNode
@@ -116,6 +117,8 @@ function Sidebar({ isOpen, onClose, isMobile }: SidebarProps): React.JSX.Element
             onClick={isMobile ? onClose : undefined}
           />
         </nav>
+
+        {settings.showSidebarCalendar === 'true' && <MiniCalendar />}
 
         <div className="mt-6 border-t border-slate-200 dark:border-slate-800 pt-4 text-xs text-slate-500">
           <div className="font-medium text-slate-600 dark:text-slate-300">{t('session')}</div>

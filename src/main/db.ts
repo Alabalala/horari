@@ -93,7 +93,8 @@ const defaultSettings = {
   companyName: 'My Company',
   openingTime: '08:00',
   closingTime: '20:00',
-  autoUpdate: 'true'
+  autoUpdate: 'true',
+  showSidebarCalendar: 'false'
 }
 
 const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
@@ -139,7 +140,7 @@ export function addEmployee(employee: Omit<Employee, 'id'>): Database.RunResult 
     employee.role,
     employee.department,
     employee.status,
-    employee.defaultHours || 40,
+    employee.defaultHours ?? 40,
     employee.displayOrder || 0
   )
 }

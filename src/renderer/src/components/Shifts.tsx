@@ -366,6 +366,15 @@ export default function Shifts(): React.JSX.Element {
     return eachWeekOfInterval({ start: startOfMonth(currentDate), end: endOfMonth(currentDate) }, { weekStartsOn: 1 })
   }, [currentDate, view])
 
+  const calendarDays = useMemo<Date[]>(() => {
+    if (view !== 'month') return []
+    const monthStart = startOfMonth(currentDate)
+    const monthEnd = endOfMonth(currentDate)
+    const startDate = startOfWeek(monthStart, { weekStartsOn: 1 })
+    const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 })
+    return eachDayOfInterval({ start: startDate, end: endDate })
+  }, [currentDate, view])
+
   const handleDragEnd = async (result: DropResult): Promise<void> => {
     const { source, destination, draggableId } = result
 
@@ -1099,6 +1108,68 @@ export default function Shifts(): React.JSX.Element {
                </div>
              ))}
            </DragDropContext>
+          
+          {view === 'month' && (
+             <div className="mt-8 border-t border-slate-200 dark:border-slate-800 pt-8">
+                <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-4 px-4">{t('calendar') || 'Calendar'}</h3>
+                <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50">
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(dayName => (
+                        <div key={dayName} className="p-2 text-center text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/50 border-r border-slate-200 dark:border-slate-800 last:border-r-0">
+                            {dayName}
+                        </div>
+                    ))}
+                    {calendarDays.map((day, i) => {
+                      const dayShifts = shifts.filter((s) => isSameDay(parseISO(s.startTime), day))
+                      const isToday = isSameDay(day, new Date())
+                      const isCurrentMonth = day.getMonth() === currentDate.getMonth()
+                      
+                      return (
+                        <div
+                          key={day.toISOString()}
+                          className={cn(
+                              'min-h-[120px] p-2 transition-colors relative group border-r border-b border-slate-200 dark:border-slate-800',
+                              (i + 1) % 7 === 0 && 'border-r-0',
+                              isToday && 'bg-blue-50/50 dark:bg-blue-500/5',
+                              !isCurrentMonth && 'bg-slate-50/50 dark:bg-slate-900/20 opacity-60'
+                          )}
+                          onClick={() => openAddModal(0, day)}
+                        >
+                          <div className="flex justify-between items-start mb-1">
+                              <span className={cn("text-xs font-medium", isToday ? "text-blue-600" : "text-slate-500")}>
+                                  {format(day, 'd')}
+                              </span>
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button className="text-blue-600 hover:text-blue-700 p-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30">
+                                      <Plus className="h-3 w-3" />
+                                  </button>
+                              </div>
+                          </div>
+                          <div className="space-y-1 overflow-y-auto max-h-[100px] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
+                              {dayShifts.map(shift => {
+                                  const emp = employees.find(e => e.id === shift.employeeId)
+                                  if (!emp) return null
+                                  return (
+                                      <div key={shift.id} 
+                                           className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded px-1 py-0.5 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 flex items-center gap-1"
+                                           onClick={(e) => {
+                                               e.stopPropagation()
+                                               openEditModal(shift)
+                                           }}
+                                           onContextMenu={(e) => handleContextMenu(e, shift)}
+                                           title={`${emp.name}: ${format(parseISO(shift.startTime), 'HH:mm')} - ${format(parseISO(shift.endTime), 'HH:mm')}`}
+                                      >
+                                          <span className="font-semibold truncate max-w-[60px]">{emp.name}</span>
+                                          <span className="opacity-75">{format(parseISO(shift.startTime), 'HH:mm')}</span>
+                                      </div>
+                                  )
+                              })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+             </div>
+          )}
         </div>
       </div>
 
@@ -1139,6 +1210,26 @@ export default function Shifts(): React.JSX.Element {
               </button>
             </div>
             <form onSubmit={handleSaveShift} className="space-y-4">
+              {!editingShift && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      {t('employee') || 'Employee'}
+                    </label>
+                    <select
+                      className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                      value={formData.employeeId}
+                      onChange={(e) => setFormData({ ...formData, employeeId: Number(e.target.value) })}
+                      required
+                    >
+                      <option value={0} disabled>{t('selectEmployee') || 'Select Employee'}</option>
+                      {employees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+              )}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                   {t('date')}

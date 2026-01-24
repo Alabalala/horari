@@ -8,6 +8,7 @@ export type Settings = {
   openingTime: string
   closingTime: string
   autoUpdate?: string
+  showSidebarCalendar?: string
   visibleStats: {
     monthlyTarget: boolean
     weeklyTarget: boolean

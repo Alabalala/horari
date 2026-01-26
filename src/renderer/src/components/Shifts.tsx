@@ -16,7 +16,8 @@ import {
   eachWeekOfInterval,
   differenceInMinutes,
   differenceInMonths,
-  differenceInDays
+  differenceInDays,
+  subMonths
 } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
@@ -32,11 +33,15 @@ import {
   GripVertical,
   AlertTriangle,
   Printer,
-  Copy
+  Copy,
+  Lock,
+  Unlock,
+  FileText
 } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 import ShiftContextMenu from './ShiftContextMenu'
 import { Employee, Shift } from '../types'
+import { calculateMonthStats, MonthlyClosure } from '@renderer/lib/balanceUtils'
 import { cn } from '@renderer/lib/utils'
 import ShiftTimelineItem from './ShiftTimelineItem'
 import ConfirmModal from './ConfirmModal'
@@ -118,11 +123,13 @@ export default function Shifts(): React.JSX.Element {
   const navigate = useNavigate()
   const [employees, setEmployees] = useState<Employee[]>([])
   const [shifts, setShifts] = useState<Shift[]>([])
+  const [monthlyClosures, setMonthlyClosures] = useState<MonthlyClosure[]>([])
   const [currentDate, setCurrentDate] = useState(new Date())
   const [view, setView] = useState<'week' | 'day' | 'month'>('week')
   const [search, setSearch] = useState('')
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
   // Business Hours Logic
@@ -251,35 +258,70 @@ export default function Shifts(): React.JSX.Element {
 
   const fetchData = async (): Promise<void> => {
     setLoading(true)
+    setError(null)
     try {
-      const [emps, allShifts] = await Promise.all([
+      if (!window.api) {
+        throw new Error('API not available. Please restart the application.')
+      }
+
+      // 1. Fetch Employees and Closures first
+      if (!window.api.employees) throw new Error("API 'employees' missing")
+      if (!window.api.monthlyClosures) throw new Error("API 'monthlyClosures' missing")
+
+      const [emps, closures] = await Promise.all([
         window.api.employees.getAll(),
-        window.api.shifts.getAll() // We fetch all shifts for now, or we could filter by date range
+        window.api.monthlyClosures.getAll()
       ])
-      
-      // Filter shifts for current view to optimize rendering if needed, 
-      // but simpler to fetch all or fetch range. 
-      // Let's refine fetch range:
-      let startStr, endStr
-      if (view === 'week') {
-        const start = startOfWeek(currentDate, { weekStartsOn: 1 })
-        const end = endOfWeek(currentDate, { weekStartsOn: 1 })
-        startStr = start.toISOString()
-        endStr = end.toISOString()
-      } else if (view === 'month') {
-        // For month view, we need ALL shifts to calculate lifetime balance accurately
-        // So we leave startStr/endStr undefined to fetch everything
-        startStr = undefined
-        endStr = undefined
+      const closureList = closures as MonthlyClosure[]
+      setMonthlyClosures(closureList)
+      setEmployees(emps as Employee[])
+
+      // 2. Determine Fetch Range based on View and Closures
+      // We need historical shifts (since last closure) to calculate accumulated balance correctly in Week/Month views.
+      let startStr: string | undefined
+      let endStr: string | undefined
+
+      if (view === 'week' || view === 'month') {
+        // Find latest closure to determine start point
+        const sortedClosures = [...closureList]
+            .filter(c => c.status === 'LOCKED')
+            .sort((a, b) => b.monthId.localeCompare(a.monthId))
+        
+        const latestClosure = sortedClosures[0]
+        
+        if (latestClosure) {
+            // Start from the beginning of the next month after the closure
+            const closureDate = parseISO(latestClosure.monthId + '-01')
+            const nextMonthStart = addDays(endOfMonth(closureDate), 1)
+            startStr = nextMonthStart.toISOString()
+        } else {
+            // No closures? Fetch everything to ensure correct initial balance calculation
+            startStr = undefined 
+        }
+
+        // End date: End of the current view interval
+        if (view === 'week') {
+            endStr = endOfWeek(currentDate, { weekStartsOn: 1 }).toISOString()
+        } else {
+             // For month view, ensure we cover the whole month
+             endStr = endOfMonth(currentDate).toISOString()
+        }
       } else {
+        // Day view: Optimize to fetch only relevant days? 
+        // Or just fetch the day.
         startStr = startOfDay(currentDate).toISOString()
         endStr = endOfDay(currentDate).toISOString()
       }
 
-      // Re-fetch shifts with range
+      // 3. Fetch Shifts with optimized range
+      if (!window.api.shifts) {
+         console.error("API Error: window.api.shifts is undefined. Available keys:", window.api ? Object.keys(window.api) : 'window.api is null')
+         throw new Error("Internal Error: API 'shifts' module is missing. Please restart the application.")
+      }
       const rangeShifts = await window.api.shifts.getAll(startStr, endStr)
-      
-      // Fetch weekly hours for month view and week view
+      setShifts(rangeShifts as Shift[])
+
+      // 4. Fetch Weekly Hours (unchanged logic)
       const overrides: Record<string, Record<number, number>> = {}
       if (view === 'month' || view === 'week') {
         const rangeStart = view === 'month' ? startOfMonth(currentDate) : startOfWeek(currentDate, { weekStartsOn: 1 })
@@ -301,10 +343,9 @@ export default function Shifts(): React.JSX.Element {
       }
       setWeeklyHoursOverrides(overrides)
 
-      setEmployees(emps as Employee[])
-      setShifts(rangeShifts as Shift[])
     } catch (error) {
       console.error('Failed to fetch data:', error)
+      setError(error instanceof Error ? error.message : 'Failed to fetch data')
     } finally {
       setLoading(false)
     }
@@ -374,6 +415,90 @@ export default function Shifts(): React.JSX.Element {
     const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 })
     return eachDayOfInterval({ start: startDate, end: endDate })
   }, [currentDate, view])
+
+  const handleToggleMonthStatus = async () => {
+    if (view !== 'month') return
+
+    const monthId = format(currentDate, 'yyyy-MM')
+    const existing = monthlyClosures.find(c => c.monthId === monthId && c.status === 'LOCKED')
+
+    if (existing) {
+      // Unlock
+      const subsequent = monthlyClosures.find(c => c.status === 'LOCKED' && c.monthId > monthId)
+      
+      setConfirmState({
+        isOpen: true,
+        title: t('unlockMonth') || 'Unlock Month',
+        message: subsequent 
+            ? t('unlockMonthWarningSubsequent') || 'Warning: Subsequent months are closed. Unlocking this month may affect their balances.'
+            : t('unlockMonthConfirm') || 'Are you sure you want to unlock this month?',
+        type: 'danger',
+        onConfirm: async () => {
+            try {
+                await window.api.monthlyClosures.delete(monthId)
+                setConfirmState(prev => ({ ...prev, isOpen: false }))
+                fetchData()
+            } catch (e) {
+                console.error(e)
+            }
+        }
+      })
+    } else {
+      // Close
+      const prevMonthDate = subMonths(currentDate, 1)
+      const prevMonthId = format(prevMonthDate, 'yyyy-MM')
+      
+      const sortedClosures = [...monthlyClosures]
+        .filter(c => c.status === 'LOCKED')
+        .sort((a, b) => b.monthId.localeCompare(a.monthId))
+      
+      const latestClosure = sortedClosures[0]
+      
+      if (latestClosure && latestClosure.monthId < prevMonthId) {
+          setConfirmState({
+              isOpen: true,
+              title: t('cannotCloseMonth') || 'Cannot Close Month',
+              message: `${t('previousMonthNotClosed') || 'Previous month must be closed first.'} (${format(addMonths(parseISO(latestClosure.monthId + '-01'), 1), 'MMMM yyyy')})`,
+              type: 'warning',
+              onConfirm: () => setConfirmState(prev => ({ ...prev, isOpen: false }))
+          })
+          return
+      }
+      
+      // Calculate stats
+      // Ensure we have enough data. In month view, we have all shifts.
+      const stats = calculateMonthStats(
+        currentDate,
+        employees,
+        shifts,
+        monthlyClosures,
+        weeklyHoursOverrides
+      )
+      
+      const closure: MonthlyClosure = {
+        monthId,
+        status: 'LOCKED',
+        closedAt: new Date().toISOString(),
+        balances: JSON.stringify(Object.values(stats))
+      }
+      
+      setConfirmState({
+        isOpen: true,
+        title: t('closeMonth') || 'Close Month',
+        message: `${t('closeMonthConfirm') || 'Are you sure you want to close this month? This will lock the balances.'} (${format(currentDate, 'MMMM yyyy')})`,
+        type: 'info',
+        onConfirm: async () => {
+            try {
+                await window.api.monthlyClosures.set(closure)
+                setConfirmState(prev => ({ ...prev, isOpen: false }))
+                fetchData()
+            } catch (error) {
+                console.error("Failed to close month", error)
+            }
+        }
+      })
+    }
+  }
 
   const handleDragEnd = async (result: DropResult): Promise<void> => {
     const { source, destination, draggableId } = result
@@ -689,7 +814,18 @@ export default function Shifts(): React.JSX.Element {
     return differenceInMinutes(end, start) / 60
   }
 
-  // Calculate stats for Month View
+  const monthStats = useMemo(() => {
+    if (view !== 'month' && view !== 'week') return {}
+    return calculateMonthStats(
+        currentDate, 
+        employees, 
+        shifts, 
+        monthlyClosures, 
+        weeklyHoursOverrides
+    )
+  }, [currentDate, employees, shifts, monthlyClosures, weeklyHoursOverrides, view])
+
+  // Calculate stats for Month View (Legacy/Week View support)
   const getEmployeeMonthStats = (emp: Employee) => {
     // 1. Weekly breakdown
     const monthStart = startOfMonth(currentDate)
@@ -718,34 +854,26 @@ export default function Shifts(): React.JSX.Element {
         }
     })
 
-    // 2. Total Worked (This Month)
-    const totalWorked = weeklyData.reduce((acc, w) => acc + w.worked, 0)
-
-    // 3. Agreed Hours (Monthly)
-    const totalAgreed = weeklyData.reduce((acc, w) => acc + w.agreed, 0)
-
-    // 4. Difference (This Month)
-    const diff = totalWorked - totalAgreed
-
-    // 5. Total Owed (Lifetime Balance)
-    const empShifts = shifts.filter(s => s.employeeId === emp.id)
-    let lifetimeBalance = 0
+    // Use memoized monthStats for totals if available (handles closures and hybrid balance)
+    const empStats = monthStats[emp.id]
     
-    if (empShifts.length > 0) {
-        const sortedShifts = [...empShifts].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
-        const firstShiftDate = parseISO(sortedShifts[0].startTime)
-        // Use end of current month's last week as target
-        const targetDate = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 })
-        
-        const weeksDiff = Math.max(0, Math.ceil(differenceInDays(targetDate, startOfWeek(firstShiftDate, { weekStartsOn: 1 })) / 7))
-        
-        const relevantShifts = empShifts.filter(s => parseISO(s.startTime) <= targetDate)
-        const totalLifetimeWorked = relevantShifts.reduce((acc, s) => acc + getShiftDuration(s), 0)
-        
-        const defaultWeekly = emp.defaultHours || 40
-        const totalLifetimeAgreed = weeksDiff * defaultWeekly
-        
-        lifetimeBalance = totalLifetimeWorked - totalLifetimeAgreed
+    let totalWorked = 0
+    let totalAgreed = 0
+    let diff = 0
+    let lifetimeBalance = 0
+
+    if (empStats) {
+        // Use the consistent stats from balanceUtils
+        totalWorked = empStats.actualHours
+        totalAgreed = empStats.targetHours
+        diff = empStats.monthlyDifference
+        lifetimeBalance = empStats.accumulatedBalance
+    } else {
+        // Fallback
+        totalWorked = weeklyData.reduce((acc, w) => acc + w.worked, 0)
+        totalAgreed = weeklyData.reduce((acc, w) => acc + w.agreed, 0)
+        diff = totalWorked - totalAgreed
+        lifetimeBalance = (emp.initialBalance || 0) + diff 
     }
 
     return { weeklyData, totalWorked, totalAgreed, diff, lifetimeBalance, weeks }
@@ -889,6 +1017,29 @@ export default function Shifts(): React.JSX.Element {
         </div>
         
         <div className="flex items-center gap-2 ml-auto">
+          {view === 'month' && (
+            <button
+              onClick={handleToggleMonthStatus}
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 border rounded-md transition-colors text-sm font-medium",
+                monthlyClosures.find(c => c.monthId === format(currentDate, 'yyyy-MM') && c.status === 'LOCKED')
+                  ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                  : "bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+              )}
+            >
+              {monthlyClosures.find(c => c.monthId === format(currentDate, 'yyyy-MM') && c.status === 'LOCKED') ? (
+                <>
+                  <Lock className="h-4 w-4" />
+                  {t('monthClosed') || 'Month Closed'}
+                </>
+              ) : (
+                <>
+                  <Unlock className="h-4 w-4" />
+                  {t('closeMonth') || 'Close Month'}
+                </>
+              )}
+            </button>
+          )}
           <StatsVisibilityMenu />
           {view === 'week' && (
             <button
@@ -904,6 +1055,33 @@ export default function Shifts(): React.JSX.Element {
 
       {/* Shifts Grid */}
       <div className="flex-1 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50">
+        {loading ? (
+            <div className="p-8 text-center text-slate-500">Loading...</div>
+        ) : error ? (
+            <div className="p-8 text-center text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg m-4">
+                <p className="font-semibold">Error loading shifts</p>
+                <p className="text-sm mt-2">{error}</p>
+                <div className="flex justify-center gap-4 mt-4">
+                    <button 
+                        onClick={() => fetchData()}
+                        className="px-4 py-2 bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 rounded-md hover:bg-red-200 dark:hover:bg-red-900/70 transition-colors"
+                    >
+                        Retry
+                    </button>
+                    <button 
+                        onClick={() => window.location.reload()}
+                        className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                        Reload App
+                    </button>
+                </div>
+            </div>
+        ) : Object.keys(groupedEmployees).length === 0 ? (
+            <div className="p-8 text-center text-slate-500">
+                <p>No employees found.</p>
+                <p className="text-sm mt-2">Go to Employees page to add staff.</p>
+            </div>
+        ) : (
         <div className="min-w-[1000px]">
            {/* Grid Header */}
            <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
@@ -1274,6 +1452,7 @@ export default function Shifts(): React.JSX.Element {
              </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Print Modal */}

@@ -22,7 +22,11 @@ import {
   setMonthlyHours,
   getWeeklyHours,
   getAllWeeklyHours,
-  setWeeklyHours
+  setWeeklyHours,
+  getMonthlyClosure,
+  getAllMonthlyClosures,
+  setMonthlyClosure,
+  deleteMonthlyClosure
 } from './db'
 
 function createWindow(): void {
@@ -190,6 +194,20 @@ app.whenReady().then(() => {
     })
     ipcMain.handle('delete-shift', (_, id) => {
       return deleteShift(id)
+    })
+
+    // Monthly Closures
+    ipcMain.handle('get-monthly-closure', (_, monthId) => {
+      return getMonthlyClosure(monthId)
+    })
+    ipcMain.handle('get-all-monthly-closures', () => {
+      return getAllMonthlyClosures()
+    })
+    ipcMain.handle('set-monthly-closure', (_, closure) => {
+      return setMonthlyClosure(closure)
+    })
+    ipcMain.handle('delete-monthly-closure', (_, monthId) => {
+      return deleteMonthlyClosure(monthId)
     })
 
     // Settings

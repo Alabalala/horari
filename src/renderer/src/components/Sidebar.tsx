@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, Settings, Calendar, X } from 'lucide-react'
+import { LayoutDashboard, Users, Settings, Calendar, X, FileText } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 import { cn } from '@renderer/lib/utils'
@@ -108,6 +108,12 @@ function Sidebar({ isOpen, onClose, isMobile }: SidebarProps): React.JSX.Element
             icon={<Users className="h-4 w-4" />} 
             label={t('employees')} 
             to="/employees" 
+            onClick={isMobile ? onClose : undefined}
+          />
+          <SidebarItem 
+            icon={<FileText className="h-4 w-4" />} 
+            label={t('reports') || 'Reports'} 
+            to="/reports" 
             onClick={isMobile ? onClose : undefined}
           />
           <SidebarItem 

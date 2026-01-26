@@ -6,6 +6,7 @@ export type Employee = {
   status: string
   defaultHours: number
   displayOrder: number
+  initialBalance?: number
 }
 
 export type Shift = {

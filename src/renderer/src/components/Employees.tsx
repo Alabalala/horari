@@ -39,7 +39,8 @@ export default function Employees(): React.JSX.Element {
     role: '',
     department: '',
     status: 'Active',
-    defaultHours: 40
+    defaultHours: 40,
+    initialBalance: 0
   })
   const [isNewDepartment, setIsNewDepartment] = useState(false)
 
@@ -68,7 +69,7 @@ export default function Employees(): React.JSX.Element {
       }
       setIsModalOpen(false)
       setEditingId(null)
-      setFormData({ name: '', role: '', department: '', status: 'Active', defaultHours: 40 })
+      setFormData({ name: '', role: '', department: '', status: 'Active', defaultHours: 40, initialBalance: 0 })
       fetchEmployees()
     } catch (error) {
       console.error('Failed to save employee:', error)
@@ -89,7 +90,8 @@ export default function Employees(): React.JSX.Element {
       role: employee.role,
       department: employee.department,
       status: employee.status,
-      defaultHours: employee.defaultHours ?? 40
+      defaultHours: employee.defaultHours ?? 40,
+      initialBalance: employee.initialBalance ?? 0
     })
     setIsNewDepartment(false)
     setIsModalOpen(true)
@@ -125,7 +127,7 @@ export default function Employees(): React.JSX.Element {
 
   const openAddModal = (): void => {
     setEditingId(null)
-    setFormData({ name: '', role: '', department: '', status: 'Active', defaultHours: 40 })
+    setFormData({ name: '', role: '', department: '', status: 'Active', defaultHours: 40, initialBalance: 0 })
     setIsNewDepartment(false)
     setIsModalOpen(true)
   }
@@ -476,6 +478,19 @@ export default function Employees(): React.JSX.Element {
                   value={formData.defaultHours}
                   onChange={(e) =>
                     setFormData({ ...formData, defaultHours: Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {t('initialBalance') || 'Initial Balance (Starting Debt)'}
+                </label>
+                <input
+                  type="number"
+                  className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={formData.initialBalance}
+                  onChange={(e) =>
+                    setFormData({ ...formData, initialBalance: Number(e.target.value) })
                   }
                 />
               </div>

@@ -24,6 +24,12 @@ const api = {
     update: (id, shift) => ipcRenderer.invoke('update-shift', { id, ...shift }),
     delete: (id) => ipcRenderer.invoke('delete-shift', id)
   },
+  monthlyClosures: {
+    get: (monthId) => ipcRenderer.invoke('get-monthly-closure', monthId),
+    getAll: () => ipcRenderer.invoke('get-all-monthly-closures'),
+    set: (closure) => ipcRenderer.invoke('set-monthly-closure', closure),
+    delete: (monthId) => ipcRenderer.invoke('delete-monthly-closure', monthId)
+  },
   settings: {
     getAll: () => ipcRenderer.invoke('get-settings'),
     update: (key, value) => ipcRenderer.invoke('update-setting', { key, value })

@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard'
 import Employees from './components/Employees'
 import EmployeeDetails from './components/EmployeeDetails'
 import Shifts from './components/Shifts'
+import Reports from './components/Reports'
 import Settings from './components/Settings'
 import UpdateNotifier from './components/UpdateNotifier'
 import { SettingsProvider } from './contexts/SettingsContext'
@@ -60,6 +61,7 @@ function Layout(): React.JSX.Element {
           <Route path="/employees" element={<Employees />} />
           <Route path="/employees/:id" element={<EmployeeDetails />} />
           <Route path="/shifts" element={<Shifts />} />
+          <Route path="/reports" element={<Reports />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>

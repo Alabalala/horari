@@ -16,6 +16,23 @@ export type Employee = {
   status: 'Active' | 'Inactive' | 'On Leave'
   defaultHours: number
   displayOrder: number
+  initialBalance: number
+}
+
+export type MonthlyClosure = {
+  monthId: string // YYYY-MM
+  status: 'LOCKED' | 'OPEN'
+  closedAt: string // ISO string
+  balances: string // JSON string of EmployeeBalance[]
+}
+
+export type EmployeeBalance = {
+  employeeId: number
+  name: string
+  targetHours: number
+  workedHours: number
+  balance: number // worked - target
+  totalBalance: number // previous + current balance
 }
 
 export type Shift = {
@@ -72,6 +89,13 @@ db.exec(`
     FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE,
     UNIQUE(employeeId, weekStart)
   );
+
+  CREATE TABLE IF NOT EXISTS monthly_closures (
+    monthId TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    closedAt TEXT NOT NULL,
+    balances TEXT NOT NULL
+  );
 `)
 
 try {
@@ -82,6 +106,12 @@ try {
 
 try {
   db.exec('ALTER TABLE employees ADD COLUMN displayOrder INTEGER DEFAULT 0')
+} catch (error) {
+  // Column likely exists
+}
+
+try {
+  db.exec('ALTER TABLE employees ADD COLUMN initialBalance REAL DEFAULT 0')
 } catch (error) {
   // Column likely exists
 }
@@ -133,7 +163,7 @@ export function getEmployee(id: number): Employee | undefined {
 
 export function addEmployee(employee: Omit<Employee, 'id'>): Database.RunResult {
   const stmt = db.prepare(
-    'INSERT INTO employees (name, role, department, status, defaultHours, displayOrder) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO employees (name, role, department, status, defaultHours, displayOrder, initialBalance) VALUES (?, ?, ?, ?, ?, ?, ?)'
   )
   return stmt.run(
     employee.name,
@@ -141,13 +171,14 @@ export function addEmployee(employee: Omit<Employee, 'id'>): Database.RunResult 
     employee.department,
     employee.status,
     employee.defaultHours ?? 40,
-    employee.displayOrder || 0
+    employee.displayOrder || 0,
+    employee.initialBalance || 0
   )
 }
 
 export function updateEmployee(id: number, employee: Omit<Employee, 'id'>): Database.RunResult {
   const stmt = db.prepare(
-    'UPDATE employees SET name = ?, role = ?, department = ?, status = ?, defaultHours = ?, displayOrder = ? WHERE id = ?'
+    'UPDATE employees SET name = ?, role = ?, department = ?, status = ?, defaultHours = ?, displayOrder = ?, initialBalance = ? WHERE id = ?'
   )
   return stmt.run(
     employee.name,
@@ -156,6 +187,7 @@ export function updateEmployee(id: number, employee: Omit<Employee, 'id'>): Data
     employee.status,
     employee.defaultHours,
     employee.displayOrder || 0,
+    employee.initialBalance || 0,
     id
   )
 }
@@ -198,9 +230,7 @@ export function getWeeklyHours(employeeId: number, weekStart: string): number | 
 }
 
 export function getAllWeeklyHours(weekStart: string): { employeeId: number; hours: number }[] {
-  return db
-    .prepare('SELECT employeeId, hours FROM weekly_hours WHERE weekStart = ?')
-    .all(weekStart) as { employeeId: number; hours: number }[]
+  return db.prepare('SELECT employeeId, hours FROM weekly_hours WHERE weekStart = ?').all(weekStart) as { employeeId: number; hours: number }[]
 }
 
 export function setWeeklyHours(
@@ -214,7 +244,6 @@ export function setWeeklyHours(
   return stmt.run(employeeId, weekStart, hours, hours)
 }
 
-// Shift operations
 export function getShifts(employeeId: number, startDate?: string, endDate?: string): Shift[] {
   let query = 'SELECT * FROM shifts WHERE employeeId = ?'
   const params: (number | string)[] = [employeeId]
@@ -264,4 +293,25 @@ export function updateShift(id: number, shift: Omit<Shift, 'id'>): Database.RunR
 export function deleteShift(id: number): Database.RunResult {
   const stmt = db.prepare('DELETE FROM shifts WHERE id = ?')
   return stmt.run(id)
+}
+
+// Monthly Closures operations
+export function getMonthlyClosure(monthId: string): MonthlyClosure | undefined {
+  return db.prepare('SELECT * FROM monthly_closures WHERE monthId = ?').get(monthId) as MonthlyClosure | undefined
+}
+
+export function getAllMonthlyClosures(): MonthlyClosure[] {
+  return db.prepare('SELECT * FROM monthly_closures ORDER BY monthId DESC').all() as MonthlyClosure[]
+}
+
+export function setMonthlyClosure(closure: MonthlyClosure): Database.RunResult {
+  const stmt = db.prepare(
+    'INSERT INTO monthly_closures (monthId, status, closedAt, balances) VALUES (?, ?, ?, ?) ON CONFLICT(monthId) DO UPDATE SET status = ?, closedAt = ?, balances = ?'
+  )
+  return stmt.run(closure.monthId, closure.status, closure.closedAt, closure.balances, closure.status, closure.closedAt, closure.balances)
+}
+
+export function deleteMonthlyClosure(monthId: string): Database.RunResult {
+  const stmt = db.prepare('DELETE FROM monthly_closures WHERE monthId = ?')
+  return stmt.run(monthId)
 }

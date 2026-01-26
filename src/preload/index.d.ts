@@ -14,6 +14,7 @@ declare global {
           status: string
           defaultHours?: number
           displayOrder?: number
+          initialBalance?: number
         }) => Promise<void>
         update: (
           id: number,
@@ -24,6 +25,7 @@ declare global {
             status: string
             defaultHours?: number
             displayOrder?: number
+            initialBalance?: number
           }
         ) => Promise<void>
         updateOrder: (id: number, order: number) => Promise<void>
@@ -43,6 +45,17 @@ declare global {
           shift: { employeeId: number; startTime: string; endTime: string }
         ) => Promise<void>
         delete: (id: number) => Promise<void>
+      }
+      monthlyClosures: {
+        get: (monthId: string) => Promise<unknown | undefined>
+        getAll: () => Promise<unknown[]>
+        set: (closure: {
+          monthId: string
+          status: 'LOCKED' | 'OPEN'
+          closedAt: string
+          balances: string
+        }) => Promise<void>
+        delete: (monthId: string) => Promise<void>
       }
       settings: {
         getAll: () => Promise<Record<string, string>>

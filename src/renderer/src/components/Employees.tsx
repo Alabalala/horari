@@ -1,19 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Trash2, Edit2, X, Save, Calendar, Filter } from 'lucide-react'
+import { Plus, Trash2, Edit2, X, Save, Calendar, Filter, GripVertical } from 'lucide-react'
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table'
 import { cn } from '@renderer/lib/utils'
 import { useSettings } from '../hooks/useSettings'
 import ConfirmModal from './ConfirmModal'
-
-type Employee = {
-  id: number
-  name: string
-  role: string
-  department: string
-  status: string
-  defaultHours?: number
-}
+import { Employee } from '@renderer/types'
 
 export default function Employees(): React.JSX.Element {
   const { t } = useSettings()
@@ -53,7 +46,9 @@ export default function Employees(): React.JSX.Element {
   const fetchEmployees = async (): Promise<void> => {
     try {
       const data = await window.api.employees.getAll()
-      setEmployees(data as Employee[])
+      // Sort by displayOrder
+      const sorted = (data as Employee[]).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+      setEmployees(sorted)
     } catch (error) {
       console.error('Failed to fetch employees:', error)
     }
@@ -147,6 +142,54 @@ export default function Employees(): React.JSX.Element {
     return true
   })
 
+  const handleDragEnd = async (result: DropResult): Promise<void> => {
+    const { source, destination } = result
+    if (!destination) return
+    if (source.index === destination.index) return
+
+    // We are reordering the filtered list
+    const currentList = [...filteredEmployees]
+    const [movedEmp] = currentList.splice(source.index, 1)
+    currentList.splice(destination.index, 0, movedEmp)
+    
+    // Permutation Strategy: Collect existing orders from the visible list and redistribute
+    // This ensures we reuse valid order numbers and don't reset to 0..N if we are in a filtered view
+    const ordersToDistribute = filteredEmployees.map(e => e.displayOrder || 0).sort((a, b) => a - b)
+    
+    const updates: Promise<void>[] = []
+    currentList.forEach((emp, index) => {
+        const newOrder = ordersToDistribute[index] !== undefined ? ordersToDistribute[index] : index
+        if (emp.displayOrder !== newOrder) {
+            emp.displayOrder = newOrder
+            updates.push(window.api.employees.updateOrder(emp.id, newOrder))
+        }
+    })
+    
+    // Update local state
+    setEmployees(prev => {
+        const newMap = new Map(currentList.map(e => [e.id, e]))
+        // We need to merge the reordered filtered items back into the main list
+        // preserving the new order for the filtered items, and keeping others in place?
+        // Actually, easiest is to just map the updates.
+        // But we want to reflect the new sort order immediately.
+        
+        // Strategy: 
+        // 1. Create a map of updated employees.
+        // 2. Map over the previous full list.
+        // 3. BUT the full list needs to be re-sorted based on the new displayOrders.
+        
+        const updatedFullList = prev.map(e => newMap.get(e.id) || e)
+        return updatedFullList.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+    })
+    
+    try {
+        await Promise.all(updates)
+    } catch (err) {
+        console.error("Failed to update order", err)
+        fetchEmployees()
+    }
+  }
+
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <header className="flex items-center justify-between">
@@ -221,85 +264,109 @@ export default function Employees(): React.JSX.Element {
         )}
       </div>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>ID</TableHead>
-            <TableHead>{t('name')}</TableHead>
-            <TableHead>{t('role')}</TableHead>
-            <TableHead>{t('department')}</TableHead>
-            <TableHead>{t('status')}</TableHead>
-            <TableHead className="text-right">{t('actions')}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {filteredEmployees.length === 0 ? (
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-slate-500 dark:text-slate-400 py-8">
-                {t('noActiveEmployees')}
-              </TableCell>
+              <TableHead className="w-[40px]"></TableHead>
+              <TableHead>ID</TableHead>
+              <TableHead>{t('name')}</TableHead>
+              <TableHead>{t('role')}</TableHead>
+              <TableHead>{t('department')}</TableHead>
+              <TableHead>{t('status')}</TableHead>
+              <TableHead className="text-right">{t('actions')}</TableHead>
             </TableRow>
-          ) : (
-            filteredEmployees.map((emp) => (
-              <TableRow
-                key={emp.id}
-                className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                onDoubleClick={() => navigate(`/employees/${emp.id}`)}
-              >
-                <TableCell className="text-slate-500 dark:text-slate-400">#{emp.id}</TableCell>
-                <TableCell className="font-medium text-slate-900 dark:text-slate-200">{emp.name}</TableCell>
-                <TableCell className="text-slate-700 dark:text-slate-300">{emp.role}</TableCell>
-                <TableCell className="text-slate-500 dark:text-slate-400">{emp.department}</TableCell>
-                <TableCell>
-                  <span
-                    className={cn(
-                      'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                      emp.status === 'Active'
-                        ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                        : emp.status === 'Inactive'
-                          ? 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
-                          : 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                    )}
-                  >
-                    {emp.status === 'Active'
-                      ? t('statusActive')
-                      : emp.status === 'Inactive'
-                        ? t('statusInactive')
-                        : emp.status === 'On Leave'
-                          ? t('statusOnLeave')
-                          : emp.status}
-                  </span>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Link
-                      to={`/employees/${emp.id}`}
-                      className="p-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                      title={t('shifts')}
-                    >
-                      <Calendar className="h-4 w-4" />
-                    </Link>
-                    <button
-                      onClick={() => handleEdit(emp)}
-                      className="p-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                      title={t('editEmployee')}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(emp.id)}
-                      className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                      title={t('delete')}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <Droppable droppableId="employees-list">
+            {(provided) => (
+              <TableBody ref={provided.innerRef} {...provided.droppableProps}>
+                {filteredEmployees.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-slate-500 dark:text-slate-400 py-8">
+                      {t('noActiveEmployees')}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredEmployees.map((emp, index) => (
+                    <Draggable key={emp.id} draggableId={emp.id.toString()} index={index}>
+                      {(provided, snapshot) => (
+                        <TableRow
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          className={cn(
+                            "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50",
+                            snapshot.isDragging && "bg-slate-100 dark:bg-slate-800 shadow-lg relative z-20"
+                          )}
+                          onDoubleClick={() => navigate(`/employees/${emp.id}`)}
+                        >
+                          <TableCell className="w-[40px] px-0 text-center">
+                            <div 
+                              {...provided.dragHandleProps}
+                              className="flex items-center justify-center p-2 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                            >
+                              <GripVertical className="h-4 w-4" />
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-slate-500 dark:text-slate-400">#{emp.id}</TableCell>
+                          <TableCell className="font-medium text-slate-900 dark:text-slate-200">{emp.name}</TableCell>
+                          <TableCell className="text-slate-700 dark:text-slate-300">{emp.role}</TableCell>
+                          <TableCell className="text-slate-500 dark:text-slate-400">{emp.department}</TableCell>
+                          <TableCell>
+                            <span
+                              className={cn(
+                                'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                                emp.status === 'Active'
+                                  ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                                  : emp.status === 'Inactive'
+                                    ? 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                                    : 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                              )}
+                            >
+                              {emp.status === 'Active'
+                                ? t('statusActive')
+                                : emp.status === 'Inactive'
+                                  ? t('statusInactive')
+                                  : emp.status === 'On Leave'
+                                    ? t('statusOnLeave')
+                                    : emp.status}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Link
+                                to={`/employees/${emp.id}`}
+                                className="p-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                title={t('shifts')}
+                              >
+                                <Calendar className="h-4 w-4" />
+                              </Link>
+                              <button
+                                onClick={() => handleEdit(emp)}
+                                className="p-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                title={t('editEmployee')}
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(emp.id)}
+                                className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                                title={t('delete')}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Draggable>
+                  ))
+                )}
+                {provided.placeholder}
+              </TableBody>
+            )}
+          </Droppable>
+        </Table>
+      </DragDropContext>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">

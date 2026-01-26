@@ -418,14 +418,64 @@ export default function Shifts(): React.JSX.Element {
       .filter(e => e.department === destDept && e.id !== movedEmp.id)
       .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
     
+    // Strategy: Collect valid displayOrders from the destination group + the moved employee
+    // We want to preserve the "slots" these employees occupy in the global list
+    // If we moved departments, we assume the moved employee takes a "new" slot or we just use the dest group's slots + 1?
+    // Actually, if we move departments, the moved employee brings their old displayOrder.
+    // If we insert them into Dest Dept, we might not have enough "slots" in Dest Dept to maintain global order without collision.
+    // But for simplicity, let's just collect all displayOrders of the resulting group (including the moved one)
+    // and redistribute them.
+    
+    // If changing department, the moved employee is effectively joining the new group.
+    // We should include the moved employee in the "destEmployees" list before getting orders?
+    // The code below splices it in.
+    
+    // Let's get the pool of orders from the *target* state (destEmployees + movedEmp)
+    // But we need values.
+    // If we just entered the department, we might need to "steal" a value or generate one.
+    // Ideally, we re-index the *entire* database, but that's expensive.
+    // Local fix: use the values available in the destination department, plus one more?
+    // Or just use 0..N for the department?
+    // Reverting to my previous analysis: 0..N for department causes interleaving.
+    
+    // If we use "Permutation Strategy", we need N values for N people.
+    // If we add a person, we have N+1 people but only N values from the group.
+    // So "Permutation Strategy" only works for reordering *within* a group.
+    
+    // If moving *between* departments (groups):
+    // We are increasing the size of Dest Group. We need a new slot.
+    // And decreasing Source Group.
+    
+    // Given the complexity of cross-department drag causing order issues, 
+    // and the user's request "order stays always the same",
+    // maybe we should just enforce a global re-index in the background?
+    // Or, for now, just handle the "Reorder within group" case (common) using Permutation.
+    // And "Move between groups" case using 0..N (fallback) or some best effort.
+    
+    // Wait, the user said "order... stays same".
+    // If I move Alice from Dept A to Dept B, she is now in Dept B.
+    // Her global order should probably update to be with Dept B people?
+    // If Dept A and Dept B are interleaved, it's messy.
+    
+    // Let's stick to the "Permutation Strategy" which is robust for *reordering*.
+    // For *moving between departments*, we might just append to the end of the target group's values?
+    
+    // Collect orders from the people currently in the destination (before splice)
+    // plus the moved employee's order.
+    const ordersToDistribute = [...destEmployees.map(e => e.displayOrder || 0), movedEmp.displayOrder || 0].sort((a, b) => a - b)
+    
     // Insert at new index
     destEmployees.splice(destination.index, 0, movedEmp)
 
     // Reassign orders
     const updates: Promise<void>[] = []
     destEmployees.forEach((emp, index) => {
-      emp.displayOrder = index
-      updates.push(window.api.employees.updateOrder(emp.id, index))
+      // Use the pool of orders
+      // If we have more employees than orders (shouldn't happen if we included movedEmp), safe.
+      // If we have duplicate orders in the pool, they remain duplicate.
+      // But at least we don't reset to 0,1,2.
+      emp.displayOrder = ordersToDistribute[index] !== undefined ? ordersToDistribute[index] : index
+      updates.push(window.api.employees.updateOrder(emp.id, emp.displayOrder))
     })
 
     // Update state

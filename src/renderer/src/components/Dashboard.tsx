@@ -15,6 +15,7 @@ import { useSettings } from '../hooks/useSettings'
 import ShiftTimelineItem from './ShiftTimelineItem'
 import ShiftContextMenu from './ShiftContextMenu'
 import ConfirmModal from './ConfirmModal'
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
 import {
   X,
   Save,
@@ -25,7 +26,8 @@ import {
   Briefcase,
   AlertCircle,
   TrendingUp,
-  AlertTriangle
+  AlertTriangle,
+  GripVertical
 } from 'lucide-react'
 import { Employee, Shift } from '@renderer/types'
 
@@ -37,7 +39,9 @@ function DashboardEmployeeRow({
   totalViewHours, 
   onUpdateShift,
   onEditShift,
-  onContextMenu
+  onContextMenu,
+  provided,
+  snapshot
 }: { 
   emp: Employee, 
   shifts: Shift[], 
@@ -47,14 +51,28 @@ function DashboardEmployeeRow({
   onUpdateShift: (id: number, start: string, end: string) => Promise<void> | void
   onEditShift: (shift: Shift) => void
   onContextMenu: (e: React.MouseEvent, shift: Shift) => void
+  provided: any
+  snapshot: any
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
   return (
     <div
-      className="flex items-center h-10 group hover:bg-slate-100 dark:hover:bg-slate-800/30 rounded px-1 transition-colors"
+      ref={provided.innerRef}
+      {...provided.draggableProps}
+      style={{ ...provided.draggableProps.style }}
+      className={cn(
+        "flex items-center h-10 group hover:bg-slate-100 dark:hover:bg-slate-800/30 rounded px-1 transition-colors",
+        snapshot.isDragging && "bg-slate-100 dark:bg-slate-800 shadow-lg z-50"
+      )}
     >
+      <div
+        {...provided.dragHandleProps}
+        className="flex items-center justify-center p-1 mr-2 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+      >
+        <GripVertical className="h-4 w-4" />
+      </div>
       <div 
         className="w-[150px] text-sm font-medium text-slate-700 dark:text-slate-300 truncate pr-2 flex-shrink-0 cursor-pointer select-none"
         onDoubleClick={() => navigate(`/employees/${emp.id}`)}
@@ -297,6 +315,46 @@ function Dashboard(): React.JSX.Element {
     }
   }
 
+  const handleDragEnd = async (result: DropResult): Promise<void> => {
+    const { source, destination } = result
+    if (!destination) return
+    if (source.index === destination.index) return
+
+    // We are reordering the "Active" employees list
+    const activeEmployees = employees.filter(e => e.status === 'Active')
+    
+    // Create a copy to manipulate
+    const reorderedActive = [...activeEmployees]
+    const [movedEmp] = reorderedActive.splice(source.index, 1)
+    reorderedActive.splice(destination.index, 0, movedEmp)
+    
+    // Permutation Strategy: Collect existing orders and redistribute
+    const ordersToDistribute = activeEmployees.map(e => e.displayOrder || 0).sort((a, b) => a - b)
+    
+    const updates: Promise<void>[] = []
+    reorderedActive.forEach((emp, index) => {
+        const newOrder = ordersToDistribute[index] !== undefined ? ordersToDistribute[index] : index
+        if (emp.displayOrder !== newOrder) {
+            emp.displayOrder = newOrder
+            updates.push(window.api.employees.updateOrder(emp.id, newOrder))
+        }
+    })
+    
+    // Update local state by merging changes back
+    setEmployees(prev => {
+        const newMap = new Map(reorderedActive.map(e => [e.id, e]))
+        const updatedList = prev.map(e => newMap.get(e.id) || e)
+        return updatedList.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+    })
+    
+    try {
+        await Promise.all(updates)
+    } catch (err) {
+        console.error("Failed to update order", err)
+        fetchData()
+    }
+  }
+
   const handleCloseModal = () => {
     setIsModalOpen(false)
     setOverlapError(null)
@@ -431,29 +489,45 @@ function Dashboard(): React.JSX.Element {
             </div>
 
             {/* Employee Rows */}
-            <div className="space-y-2">
-              {employees
-                .filter((e) => e.status === 'Active')
-                .map((emp) => (
-                  <DashboardEmployeeRow
-                    key={emp.id}
-                    emp={emp}
-                    shifts={todayShifts.filter((s) => s.employeeId === emp.id)}
-                    hours={hours}
-                    startHour={startHour}
-                    totalViewHours={totalViewHours}
-                    onUpdateShift={handleUpdateShift}
-                    onEditShift={openEditModal}
-                    onContextMenu={handleContextMenu}
-                  />
-                ))}
-
-              {employees.filter((e) => e.status === 'Active').length === 0 && (
-                <div className="text-center text-sm text-slate-500 py-4">
-                  {t('noActiveEmployees')}
-                </div>
-              )}
-            </div>
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <Droppable droppableId="dashboard-timeline">
+                {(provided) => (
+                  <div 
+                    className="space-y-2" 
+                    ref={provided.innerRef} 
+                    {...provided.droppableProps}
+                  >
+                    {employees
+                      .filter((e) => e.status === 'Active')
+                      .map((emp, index) => (
+                        <Draggable key={emp.id} draggableId={emp.id.toString()} index={index}>
+                          {(provided, snapshot) => (
+                            <DashboardEmployeeRow
+                              emp={emp}
+                              shifts={todayShifts.filter((s) => s.employeeId === emp.id)}
+                              hours={hours}
+                              startHour={startHour}
+                              totalViewHours={totalViewHours}
+                              onUpdateShift={handleUpdateShift}
+                              onEditShift={openEditModal}
+                              onContextMenu={handleContextMenu}
+                              provided={provided}
+                              snapshot={snapshot}
+                            />
+                          )}
+                        </Draggable>
+                      ))}
+                    {provided.placeholder}
+                    
+                    {employees.filter((e) => e.status === 'Active').length === 0 && (
+                      <div className="text-center text-sm text-slate-500 py-4">
+                        {t('noActiveEmployees')}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
 
             {/* Coverage Summary */}
             <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">

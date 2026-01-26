@@ -154,8 +154,14 @@ export default function Employees(): React.JSX.Element {
     
     // Permutation Strategy: Collect existing orders from the visible list and redistribute
     // This ensures we reuse valid order numbers and don't reset to 0..N if we are in a filtered view
-    const ordersToDistribute = filteredEmployees.map(e => e.displayOrder || 0).sort((a, b) => a - b)
+    let ordersToDistribute = filteredEmployees.map(e => e.displayOrder || 0).sort((a, b) => a - b)
     
+    // Ensure distinct values if we have collisions or all zeros (initial state)
+    if (new Set(ordersToDistribute).size !== ordersToDistribute.length || ordersToDistribute.every(o => o === 0)) {
+        const base = Date.now()
+        ordersToDistribute = filteredEmployees.map((_, i) => base + i)
+    }
+
     const updates: Promise<void>[] = []
     currentList.forEach((emp, index) => {
         const newOrder = ordersToDistribute[index] !== undefined ? ordersToDistribute[index] : index

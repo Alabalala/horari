@@ -462,7 +462,15 @@ export default function Shifts(): React.JSX.Element {
     
     // Collect orders from the people currently in the destination (before splice)
     // plus the moved employee's order.
-    const ordersToDistribute = [...destEmployees.map(e => e.displayOrder || 0), movedEmp.displayOrder || 0].sort((a, b) => a - b)
+    let ordersToDistribute = [...destEmployees.map(e => e.displayOrder || 0), movedEmp.displayOrder || 0].sort((a, b) => a - b)
+
+    // Ensure distinct values if we have collisions or all zeros (initial state)
+    if (new Set(ordersToDistribute).size !== ordersToDistribute.length || ordersToDistribute.every(o => o === 0)) {
+        const base = Date.now()
+        // We have destEmployees (length N) + movedEmp (1) = N+1 items
+        // We need N+1 orders
+        ordersToDistribute = Array(destEmployees.length + 1).fill(0).map((_, i) => base + i)
+    }
     
     // Insert at new index
     destEmployees.splice(destination.index, 0, movedEmp)
@@ -986,11 +994,19 @@ export default function Shifts(): React.JSX.Element {
                              <div className="w-48 flex-shrink-0 p-4 border-r border-slate-200 dark:border-slate-800 flex justify-between items-center group/emp">
                                 <div>
                                     <div 
-                                       className="font-medium text-slate-900 dark:text-slate-200 cursor-pointer hover:underline select-none truncate w-32"
+                                       className="font-medium text-slate-900 dark:text-slate-200 cursor-pointer hover:underline select-none truncate w-32 flex items-center gap-2"
                                        onDoubleClick={() => navigate(`/employees/${emp.id}`)}
                                        title={emp.name}
                                     >
-                                       {emp.name}
+                                       <span>{emp.name}</span>
+                                       {view === 'week' && (() => {
+                                           const stats = getEmployeeMonthStats(emp)
+                                           const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
+                                           const weekData = stats.weeklyData.find(w => isSameDay(w.weekStart, currentWeekStart))
+                                           return weekData ? (
+                                               <span className="text-xs text-slate-400 font-normal">({weekData.agreed}h)</span>
+                                           ) : null
+                                       })()}
                                     </div>
                                     <div className="text-xs text-slate-500 dark:text-slate-400">{emp.role}</div>
                                 </div>
@@ -1013,40 +1029,77 @@ export default function Shifts(): React.JSX.Element {
                                   
                                   if (!weekData) return <div className="w-40 border-r border-slate-200 dark:border-slate-800"></div>
 
+                                  const percent = Math.min((weekData.worked / weekData.agreed) * 100, 100)
+                                  const isOver = weekData.diff > 0
+                                  const isUnder = weekData.diff < -10
+
                                   return (
-                                    <div className="w-40 flex-shrink-0 flex flex-col justify-center p-2 border-r border-slate-200 dark:border-slate-800 text-xs gap-1">
-                                        {settings.visibleStats.weeklyTarget && (
+                                    <div className="w-40 flex-shrink-0 flex items-center justify-center p-4 border-r border-slate-200 dark:border-slate-800 relative group/summary">
+                                        {/* Progress Bar */}
+                                        <div 
+                                            className="h-6 w-full bg-slate-100 dark:bg-slate-800 rounded-md relative overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-700"
+                                            onClick={() => setWeeklyHoursModal({
+                                                isOpen: true,
+                                                employeeId: emp.id,
+                                                employeeName: emp.name,
+                                                weekStart: weekData.weekStart,
+                                                currentHours: weekData.agreed
+                                            })}
+                                        >
                                             <div 
-                                                className="flex justify-between items-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 rounded px-1 py-0.5 transition-colors"
-                                                onClick={() => setWeeklyHoursModal({
-                                                    isOpen: true,
-                                                    employeeId: emp.id,
-                                                    employeeName: emp.name,
-                                                    weekStart: weekData.weekStart,
-                                                    currentHours: weekData.agreed
-                                                })}
-                                                title={t('editWeeklyHours') || 'Edit Weekly Hours'}
-                                            >
-                                                <span className="text-slate-500">{t('targetWeekly') || 'Weekly Target'}:</span>
-                                                <span className="font-medium text-blue-600 dark:text-blue-400 border-b border-dashed border-blue-400">{weekData.agreed}h</span>
+                                                className={cn(
+                                                    "h-full transition-all duration-500",
+                                                    isOver ? "bg-red-500" : isUnder ? "bg-orange-400" : "bg-blue-500"
+                                                )}
+                                                style={{ width: `${percent}%` }}
+                                            />
+                                            <div className={cn(
+                                                "absolute inset-0 flex items-center justify-center text-xs font-medium z-10",
+                                                percent > 50 ? "text-white drop-shadow-sm" : "text-slate-700 dark:text-slate-300"
+                                            )}>
+                                                {weekData.worked.toFixed(1)} / {weekData.agreed}h
                                             </div>
-                                        )}
-                                        {settings.visibleStats.weeklyDiff && (
-                                            <div className="flex justify-between items-center px-1">
-                                                <span className="text-slate-500">{t('weekDiff') || 'Weekly Diff'}:</span>
-                                                <span className={cn("font-bold", weekData.diff < 0 ? "text-red-500" : "text-green-500")}>
-                                                    {weekData.diff > 0 ? '+' : ''}{weekData.diff.toFixed(1)}
-                                                </span>
+                                        </div>
+
+                                        {/* Hover Tooltip */}
+                                        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 bg-white dark:bg-slate-900 shadow-xl rounded-md border border-slate-200 dark:border-slate-800 p-3 z-50 invisible group-hover/summary:visible opacity-0 group-hover/summary:opacity-100 transition-all duration-200">
+                                            <div className="text-xs space-y-2">
+                                                <div className="font-semibold text-slate-900 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800 pb-1 mb-1">
+                                                    {t('summary') || 'Summary'}
+                                                </div>
+                                                
+                                                {settings.visibleStats.weeklyTarget && (
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-slate-500">{t('targetWeekly') || 'Weekly Target'}:</span>
+                                                        <span className="font-medium text-blue-600 dark:text-blue-400">{weekData.agreed}h</span>
+                                                    </div>
+                                                )}
+                                                
+                                                {settings.visibleStats.weeklyDiff && (
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-slate-500">{t('weekDiff') || 'Weekly Diff'}:</span>
+                                                        <span className={cn("font-bold", weekData.diff < 0 ? "text-red-500" : "text-green-500")}>
+                                                            {weekData.diff > 0 ? '+' : ''}{weekData.diff.toFixed(1)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                
+                                                {settings.visibleStats.monthlyDiff && (
+                                                    <div className="flex justify-between items-center pt-1 border-t border-slate-100 dark:border-slate-800 mt-1">
+                                                        <span className="text-slate-500">{t('monthDiff') || 'Monthly Diff'}:</span>
+                                                        <span className={cn("font-bold", stats.diff < 0 ? "text-red-500" : "text-green-500")}>
+                                                            {stats.diff > 0 ? '+' : ''}{stats.diff.toFixed(1)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                
+                                                <div className="text-[10px] text-slate-400 pt-2 text-center">
+                                                    {t('clickToEditTarget') || 'Click bar to edit target'}
+                                                </div>
                                             </div>
-                                        )}
-                                        {settings.visibleStats.monthlyDiff && (
-                                            <div className="flex justify-between items-center pt-1 border-t border-slate-100 dark:border-slate-800 px-1 mt-1">
-                                                <span className="text-slate-500">{t('monthDiff') || 'Monthly Diff'}:</span>
-                                                <span className={cn("font-bold", stats.diff < 0 ? "text-red-500" : "text-green-500")}>
-                                                    {stats.diff > 0 ? '+' : ''}{stats.diff.toFixed(1)}
-                                                </span>
-                                            </div>
-                                        )}
+                                            {/* Arrow */}
+                                            <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white dark:bg-slate-900 border-t border-l border-slate-200 dark:border-slate-800 transform rotate-45"></div>
+                                        </div>
                                     </div>
                                   )
                               })()}

@@ -329,7 +329,14 @@ function Dashboard(): React.JSX.Element {
     reorderedActive.splice(destination.index, 0, movedEmp)
     
     // Permutation Strategy: Collect existing orders and redistribute
-    const ordersToDistribute = activeEmployees.map(e => e.displayOrder || 0).sort((a, b) => a - b)
+    let ordersToDistribute = activeEmployees.map(e => e.displayOrder || 0).sort((a, b) => a - b)
+
+    // Ensure distinct values if we have collisions or all zeros (initial state)
+    // We use a timestamp-based sequence to ensure global uniqueness and avoid collisions with filtered-out items
+    if (new Set(ordersToDistribute).size !== ordersToDistribute.length || ordersToDistribute.every(o => o === 0)) {
+        const base = Date.now()
+        ordersToDistribute = activeEmployees.map((_, i) => base + i)
+    }
     
     const updates: Promise<void>[] = []
     reorderedActive.forEach((emp, index) => {
@@ -476,7 +483,7 @@ function Dashboard(): React.JSX.Element {
         <div className="rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-4 overflow-x-auto">
           <div className="min-w-[800px]">
             {/* Time Header */}
-            <div className="flex mb-2 ml-[150px] pr-2 relative">
+            <div className="flex mb-2 ml-[186px] pr-2 relative">
               {hours.map((hour) => (
                 <div key={hour} className="flex-1 text-left pl-1 text-[10px] text-slate-400 border-l border-slate-200 dark:border-slate-800/50 h-4">
                   {String(hour % 24).padStart(2, '0')}:00
@@ -531,7 +538,7 @@ function Dashboard(): React.JSX.Element {
 
             {/* Coverage Summary */}
             <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
-              <div className="flex items-center h-4 ml-[150px] relative pr-2">
+              <div className="flex items-center h-4 ml-[186px] relative pr-2">
                 {hours.map((hour) => {
                   const isCovered = todayShifts.some((s) => {
                     const shiftStart = parseISO(s.startTime)
@@ -556,7 +563,7 @@ function Dashboard(): React.JSX.Element {
                   )
                 })}
               </div>
-              <div className="ml-[150px] mt-1 flex justify-between text-[10px] text-slate-500">
+              <div className="ml-[186px] mt-1 flex justify-between text-[10px] text-slate-500">
                 <span>{t('coverageGapsRed')}</span>
               </div>
             </div>

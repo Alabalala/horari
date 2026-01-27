@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { FileText, ChevronRight, Lock, Calendar } from 'lucide-react'
+import { FileText, ChevronRight, Lock, Calendar, Download } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 import { MonthlyClosure, StoredEmployeeBalance } from '../lib/balanceUtils'
 import { cn } from '../lib/utils'
@@ -39,6 +39,55 @@ export default function Reports(): React.JSX.Element {
       return []
     }
   }, [selectedClosure])
+
+  const handleExportCSV = () => {
+    if (!selectedClosure || !balances.length) return
+
+    const headers = [
+      t('employee') || 'Employee',
+      t('targetHours') || 'Target Hours',
+      t('actualHours') || 'Actual Hours (Total)',
+      t('workedHours') || 'Worked Hours',
+      t('paidAbsence') || 'Paid Absence',
+      t('unpaidAbsence') || 'Unpaid Absence',
+      t('payrollHours') || 'Payroll Hours (Billable)',
+      t('difference') || 'Difference',
+      t('accumulatedBalance') || 'Accumulated Balance'
+    ]
+
+    const rows = balances.map(b => {
+        const worked = b.workedHours ?? b.actualHours // Fallback for old records
+        const paid = b.paidAbsenceHours ?? 0
+        const unpaid = b.unpaidAbsenceHours ?? 0
+        const payroll = worked + paid
+
+        return [
+            `"${b.name}"`, 
+            b.targetHours.toFixed(2),
+            b.actualHours.toFixed(2),
+            worked.toFixed(2),
+            paid.toFixed(2),
+            unpaid.toFixed(2),
+            payroll.toFixed(2),
+            b.monthlyDifference.toFixed(2),
+            b.accumulatedBalance.toFixed(2)
+        ]
+    })
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', `report-${selectedClosure.monthId}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
 
   return (
     <div className="mx-auto flex h-[calc(100vh-4rem)] max-w-7xl flex-col gap-6 p-6">
@@ -121,6 +170,14 @@ export default function Reports(): React.JSX.Element {
                     </span>
                   </div>
                 </div>
+                <button
+                    onClick={handleExportCSV}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors shadow-sm"
+                    title={t('exportCSVDescription') || "Export to CSV (Excel compatible)"}
+                >
+                    <Download className="h-4 w-4" />
+                    {t('exportCSV') || 'Export CSV'}
+                </button>
               </div>
 
               <div className="flex-1 overflow-auto p-0">

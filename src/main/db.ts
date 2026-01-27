@@ -40,6 +40,9 @@ export type Shift = {
   employeeId: number
   startTime: string // ISO string
   endTime: string // ISO string
+  type: 'work' | 'absence'
+  absenceType?: 'holiday' | 'bank_holiday' | 'sick_leave' | 'unpaid' | 'other'
+  isPaid: boolean
 }
 
 export type MonthlyHours = {
@@ -112,6 +115,25 @@ try {
 
 try {
   db.exec('ALTER TABLE employees ADD COLUMN initialBalance REAL DEFAULT 0')
+} catch (error) {
+  // Column likely exists
+}
+
+// Migrations for Shift Absence
+try {
+  db.exec("ALTER TABLE shifts ADD COLUMN type TEXT DEFAULT 'work'")
+} catch (error) {
+  // Column likely exists
+}
+
+try {
+  db.exec('ALTER TABLE shifts ADD COLUMN absenceType TEXT')
+} catch (error) {
+  // Column likely exists
+}
+
+try {
+  db.exec('ALTER TABLE shifts ADD COLUMN isPaid INTEGER DEFAULT 1')
 } catch (error) {
   // Column likely exists
 }
@@ -279,15 +301,15 @@ export function getAllShifts(
 }
 
 export function addShift(shift: Omit<Shift, 'id'>): Database.RunResult {
-  const stmt = db.prepare('INSERT INTO shifts (employeeId, startTime, endTime) VALUES (?, ?, ?)')
-  return stmt.run(shift.employeeId, shift.startTime, shift.endTime)
+  const stmt = db.prepare('INSERT INTO shifts (employeeId, startTime, endTime, type, absenceType, isPaid) VALUES (?, ?, ?, ?, ?, ?)')
+  return stmt.run(shift.employeeId, shift.startTime, shift.endTime, shift.type || 'work', shift.absenceType || null, shift.isPaid ? 1 : 0)
 }
 
 export function updateShift(id: number, shift: Omit<Shift, 'id'>): Database.RunResult {
   const stmt = db.prepare(
-    'UPDATE shifts SET employeeId = ?, startTime = ?, endTime = ? WHERE id = ?'
+    'UPDATE shifts SET employeeId = ?, startTime = ?, endTime = ?, type = ?, absenceType = ?, isPaid = ? WHERE id = ?'
   )
-  return stmt.run(shift.employeeId, shift.startTime, shift.endTime, id)
+  return stmt.run(shift.employeeId, shift.startTime, shift.endTime, shift.type || 'work', shift.absenceType || null, shift.isPaid ? 1 : 0, id)
 }
 
 export function deleteShift(id: number): Database.RunResult {

@@ -136,10 +136,29 @@ export default function ShiftTimelineItem({
       return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
   }
 
+  const getShiftStyle = () => {
+    if (shift.type === 'absence') {
+        switch (shift.absenceType) {
+            case 'bank_holiday':
+                return "bg-red-500/90 border-red-700 text-white"
+            case 'sick_leave':
+                return "bg-green-600/90 border-green-800 text-white"
+            case 'unpaid':
+                return "bg-slate-500/90 border-slate-700 text-white line-through decoration-white/70"
+            case 'holiday':
+                return "bg-purple-500/90 border-purple-700 text-white"
+            default:
+                return "bg-orange-500/90 border-orange-700 text-white"
+        }
+    }
+    return "bg-blue-600/80 border-blue-400 text-white"
+  }
+
   return (
     <div
       className={cn(
-        "absolute top-1 bottom-1 bg-blue-600/80 rounded-sm text-[10px] text-white flex items-center justify-center overflow-hidden whitespace-nowrap px-1 group cursor-pointer border-l border-r border-blue-400 select-none z-10 print:whitespace-nowrap print:overflow-visible print:[text-shadow:0_1px_2px_rgb(0_0_0_/_80%)]",
+        "absolute top-1 bottom-1 rounded-sm text-[10px] flex items-center justify-center overflow-hidden whitespace-nowrap px-1 group cursor-pointer border-l border-r select-none z-10 print:whitespace-nowrap print:overflow-visible print:[text-shadow:0_1px_2px_rgb(0_0_0_/_80%)]",
+        getShiftStyle(),
         isResizing && "z-20 ring-2 ring-blue-400 opacity-90",
         readOnly && "cursor-default border-none",
         className
@@ -157,12 +176,12 @@ export default function ShiftTimelineItem({
           onContextMenu(e, shift)
         }
       }}
-      title={`${formatDisplayTime(currentStartHour)} - ${formatDisplayTime(currentEndHour)}`}
+      title={`${shift.type === 'absence' ? (shift.absenceType?.replace('_', ' ') || 'Absence') + ' ' : ''}${formatDisplayTime(currentStartHour)} - ${formatDisplayTime(currentEndHour)}`}
     >
       {/* Left Handle */}
       {!readOnly && (
         <div
-            className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 flex items-center justify-center"
+            className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20 flex items-center justify-center"
             onMouseDown={(e) => startResize(e, 'left')}
         >
             <div className="w-0.5 h-3 bg-white/30 rounded-full" />
@@ -170,13 +189,18 @@ export default function ShiftTimelineItem({
       )}
 
       <span className={cn("px-1", !readOnly && "truncate px-2")}>
-        {formatDisplayTime(currentStartHour)} - {formatDisplayTime(currentEndHour)}
+        {shift.type === 'absence' && shift.absenceType === 'unpaid' ? (
+             // For unpaid, we might want to show text clearly despite strikethrough
+             <span className="no-underline">{formatDisplayTime(currentStartHour)} - {formatDisplayTime(currentEndHour)}</span>
+        ) : (
+             <>{formatDisplayTime(currentStartHour)} - {formatDisplayTime(currentEndHour)}</>
+        )}
       </span>
 
       {/* Right Handle */}
       {!readOnly && (
         <div
-            className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-400/50 flex items-center justify-center"
+            className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20 flex items-center justify-center"
             onMouseDown={(e) => startResize(e, 'right')}
         >
             <div className="w-0.5 h-3 bg-white/30 rounded-full" />

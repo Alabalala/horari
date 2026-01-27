@@ -152,7 +152,11 @@ export default function Shifts(): React.JSX.Element {
     employeeId: 0,
     date: '',
     startTime: '',
-    endTime: ''
+    endTime: '',
+    type: 'work' as 'work' | 'absence',
+    absenceType: 'holiday' as 'holiday' | 'bank_holiday' | 'sick_leave' | 'unpaid' | 'other',
+    days: 1,
+    isPaid: true
   })
   const [overlapError, setOverlapError] = useState<string | null>(null)
   const [businessHourWarning, setBusinessHourWarning] = useState<string | null>(null)
@@ -654,28 +658,84 @@ export default function Shifts(): React.JSX.Element {
     e.preventDefault()
     if (overlapError) return // Prevent save if overlap
 
-    const startDateTime = new Date(`${formData.date}T${formData.startTime}`)
-    let endDateTime = new Date(`${formData.date}T${formData.endTime}`)
-
-    // Handle cross-day shifts: if end time < start time, assume it ends the next day
-    if (endDateTime < startDateTime) {
-        endDateTime = addDays(endDateTime, 1)
-    }
-
     try {
-        if (editingShift) {
-            await window.api.shifts.update(editingShift.id, {
-                employeeId: formData.employeeId,
-                startTime: startDateTime.toISOString(),
-                endTime: endDateTime.toISOString()
-            })
+        if (formData.type === 'absence') {
+            const employee = employees.find(e => e.id === formData.employeeId)
+            if (!employee) return
+
+            // Calculate daily average hours
+            const dailyHours = employee.defaultHours / 7
+            // Start at 9:00 AM default for absence visual
+            const startTimeStr = "09:00"
+            const startHour = 9
+            // End time based on duration
+            const durationMinutes = Math.round(dailyHours * 60)
+            const endHour = startHour + (durationMinutes / 60)
+            // Format end time HH:mm
+            const endH = Math.floor(endHour)
+            const endM = Math.round((endHour % 1) * 60)
+            const endTimeStr = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`
+
+            const baseDate = parseISO(formData.date)
+            const daysToCreate = editingShift ? 1 : formData.days
+
+            const promises: Promise<any>[] = []
+
+            for (let i = 0; i < daysToCreate; i++) {
+                const currentDate = addDays(baseDate, i)
+                const dateStr = format(currentDate, 'yyyy-MM-dd')
+                const startDateTime = new Date(`${dateStr}T${startTimeStr}`)
+                const endDateTime = new Date(`${dateStr}T${endTimeStr}`)
+                
+                // If it crosses day (unlikely for <24h), handle it
+                if (endDateTime < startDateTime) {
+                    // This shouldn't happen with 9am start and typical 8h shift
+                    endDateTime.setDate(endDateTime.getDate() + 1) 
+                }
+
+                const shiftData = {
+                    employeeId: formData.employeeId,
+                    startTime: startDateTime.toISOString(),
+                    endTime: endDateTime.toISOString(),
+                    type: 'absence' as const,
+                    absenceType: formData.absenceType,
+                    isPaid: formData.isPaid
+                }
+
+                if (editingShift) {
+                     promises.push(window.api.shifts.update(editingShift.id, shiftData))
+                } else {
+                     promises.push(window.api.shifts.add(shiftData))
+                }
+            }
+
+            await Promise.all(promises)
+
         } else {
-            await window.api.shifts.add({
+            const startDateTime = new Date(`${formData.date}T${formData.startTime}`)
+            let endDateTime = new Date(`${formData.date}T${formData.endTime}`)
+
+            // Handle cross-day shifts: if end time < start time, assume it ends the next day
+            if (endDateTime < startDateTime) {
+                endDateTime = addDays(endDateTime, 1)
+            }
+
+            const shiftData = {
                 employeeId: formData.employeeId,
                 startTime: startDateTime.toISOString(),
-                endTime: endDateTime.toISOString()
-            })
+                endTime: endDateTime.toISOString(),
+                type: 'work' as const,
+                absenceType: null,
+                isPaid: true
+            }
+
+            if (editingShift) {
+                await window.api.shifts.update(editingShift.id, shiftData)
+            } else {
+                await window.api.shifts.add(shiftData)
+            }
         }
+
         handleCloseModal()
         fetchData()
     } catch (error) {
@@ -716,7 +776,11 @@ export default function Shifts(): React.JSX.Element {
       employeeId,
       date: format(date, 'yyyy-MM-dd'),
       startTime: settings.openingTime,
-      endTime: settings.closingTime
+      endTime: settings.closingTime,
+      type: 'work',
+      absenceType: 'holiday',
+      days: 1,
+      isPaid: true
     })
     setIsModalOpen(true)
   }
@@ -729,7 +793,11 @@ export default function Shifts(): React.JSX.Element {
       employeeId: shift.employeeId,
       date: format(start, 'yyyy-MM-dd'),
       startTime: format(start, 'HH:mm'),
-      endTime: format(end, 'HH:mm')
+      endTime: format(end, 'HH:mm'),
+      type: shift.type || 'work',
+      absenceType: shift.absenceType || 'holiday',
+      days: 1, // Editing implies single shift usually
+      isPaid: shift.isPaid !== undefined ? !!shift.isPaid : true
     })
     setIsModalOpen(true)
   }
@@ -1492,6 +1560,34 @@ export default function Shifts(): React.JSX.Element {
               </button>
             </div>
             <form onSubmit={handleSaveShift} className="space-y-4">
+              {/* Type Toggle */}
+              <div className="flex p-1 bg-slate-100 dark:bg-slate-900 rounded-lg">
+                <button
+                    type="button"
+                    className={cn(
+                        "flex-1 py-1.5 text-sm font-medium rounded-md transition-all",
+                        formData.type === 'work' 
+                            ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm" 
+                            : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                    )}
+                    onClick={() => setFormData({ ...formData, type: 'work' })}
+                >
+                    {t('work') || 'Work'}
+                </button>
+                <button
+                    type="button"
+                    className={cn(
+                        "flex-1 py-1.5 text-sm font-medium rounded-md transition-all",
+                        formData.type === 'absence' 
+                            ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm" 
+                            : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                    )}
+                    onClick={() => setFormData({ ...formData, type: 'absence' })}
+                >
+                    {t('absence') || 'Absence'}
+                </button>
+              </div>
+
               {!editingShift && (
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -1512,9 +1608,10 @@ export default function Shifts(): React.JSX.Element {
                     </select>
                   </div>
               )}
+
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  {t('date')}
+                  {formData.type === 'absence' ? (t('startDate') || 'Start Date') : t('date')}
                 </label>
                 <input
                   type="date"
@@ -1524,32 +1621,95 @@ export default function Shifts(): React.JSX.Element {
                   onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    {t('startTime')}
-                  </label>
-                  <input
-                    type="time"
-                    required
-                    className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
-                    value={formData.startTime}
-                    onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    {t('endTime')}
-                  </label>
-                  <input
-                    type="time"
-                    required
-                    className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
-                    value={formData.endTime}
-                    onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-                  />
-                </div>
-              </div>
+
+              {formData.type === 'absence' ? (
+                  <>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            {t('absenceType') || 'Absence Type'}
+                        </label>
+                        <select
+                            className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                            value={formData.absenceType}
+                            onChange={(e) => {
+                                const newType = e.target.value as any;
+                                setFormData({ 
+                                    ...formData, 
+                                    absenceType: newType,
+                                    isPaid: newType !== 'unpaid'
+                                })
+                            }}
+                            required
+                        >
+                            <option value="holiday">{t('holiday') || 'Holiday (Vacaciones)'}</option>
+                            <option value="bank_holiday">{t('bankHoliday') || 'Bank Holiday (Festivo)'}</option>
+                            <option value="sick_leave">{t('sickLeave') || 'Sick Leave (Baja)'}</option>
+                            <option value="unpaid">{t('unpaid') || 'Unpaid (Permiso no retribuido)'}</option>
+                            <option value="other">{t('other') || 'Other'}</option>
+                        </select>
+                    </div>
+                    
+                    {!editingShift && (
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                {t('numberOfDays') || 'Number of Days'}
+                            </label>
+                            <input
+                                type="number"
+                                min="1"
+                                max="30"
+                                required
+                                className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                                value={formData.days}
+                                onChange={(e) => setFormData({ ...formData, days: parseInt(e.target.value) || 1 })}
+                            />
+                            <p className="text-xs text-slate-500">
+                                {t('daysToHoursNote') || 'Creates daily entries based on weekly average.'}
+                            </p>
+                        </div>
+                    )}
+
+                    <div className="flex items-center space-x-2 pt-2">
+                        <input
+                            type="checkbox"
+                            id="isPaid"
+                            checked={formData.isPaid}
+                            onChange={(e) => setFormData({ ...formData, isPaid: e.target.checked })}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <label htmlFor="isPaid" className="text-sm text-slate-700 dark:text-slate-300">
+                            {t('isPaid') || 'Paid Absence'}
+                        </label>
+                    </div>
+                  </>
+              ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        {t('startTime')}
+                      </label>
+                      <input
+                        type="time"
+                        required
+                        className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                        value={formData.startTime}
+                        onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        {t('endTime')}
+                      </label>
+                      <input
+                        type="time"
+                        required
+                        className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                        value={formData.endTime}
+                        onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+                      />
+                    </div>
+                  </div>
+              )}
               {/* Warnings & Errors */}
           {businessHourWarning && (
             <div className="flex items-center gap-2 rounded-md bg-yellow-50 dark:bg-yellow-900/20 p-3 text-sm text-yellow-800 dark:text-yellow-200 border border-yellow-200 dark:border-yellow-900/50">

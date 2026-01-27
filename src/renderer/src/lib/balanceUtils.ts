@@ -28,6 +28,9 @@ export interface StoredEmployeeBalance {
   actualHours: number
   monthlyDifference: number
   accumulatedBalance: number
+  workedHours?: number
+  paidAbsenceHours?: number
+  unpaidAbsenceHours?: number
 }
 
 // Helper to get applicable weekly hours for a specific day
@@ -86,9 +89,13 @@ export const calculateMonthStats = (
         
         const actuals = empShifts.reduce((sum, s) => {
             const start = parseISO(s.startTime)
-            let end = parseISO(s.endTime)
-            if (end < start) end = addDays(end, 1) // Handle cross-day
-            return sum + (differenceInMinutes(end, start) / 60)
+          let end = parseISO(s.endTime)
+          if (end < start) end = addDays(end, 1) // Handle cross-day
+          
+          // For calculation purposes, both paid and unpaid absences count towards the balance
+          // to prevent employee debt for authorized leave.
+          // In the future, for payroll export, we might filter out 'unpaid' absenceType.
+          return sum + (differenceInMinutes(end, start) / 60)
         }, 0)
         
         diffs[emp.id] = actuals - target
@@ -176,19 +183,36 @@ export const calculateMonthStats = (
           target += getDailyLiability(day, emp, weeklyHoursOverrides)
       })
 
-      // Actuals
+      // Actuals & Breakdown
+      let workedHours = 0
+      let paidAbsenceHours = 0
+      let unpaidAbsenceHours = 0
+
       const empShifts = allShifts.filter(s => {
           if (s.employeeId !== emp.id) return false
           const sStart = parseISO(s.startTime)
           return sStart >= mStart && sStart <= mEnd
       })
 
-      const actuals = empShifts.reduce((sum, s) => {
+      empShifts.forEach(s => {
           const start = parseISO(s.startTime)
           let end = parseISO(s.endTime)
           if (end < start) end = addDays(end, 1)
-          return sum + (differenceInMinutes(end, start) / 60)
-      }, 0)
+          
+          const hours = differenceInMinutes(end, start) / 60
+          
+          if (s.type === 'absence') {
+              if (s.isPaid === false) {
+                  unpaidAbsenceHours += hours
+              } else {
+                  paidAbsenceHours += hours
+              }
+          } else {
+              workedHours += hours
+          }
+      })
+
+      const actuals = workedHours + paidAbsenceHours + unpaidAbsenceHours
 
       const diff = actuals - target
       const prev = prevBalances[emp.id] || 0
@@ -199,7 +223,10 @@ export const calculateMonthStats = (
           targetHours: Number(target.toFixed(2)),
           actualHours: Number(actuals.toFixed(2)),
           monthlyDifference: Number(diff.toFixed(2)),
-          accumulatedBalance: Number((prev + diff).toFixed(2))
+          accumulatedBalance: Number((prev + diff).toFixed(2)),
+          workedHours: Number(workedHours.toFixed(2)),
+          paidAbsenceHours: Number(paidAbsenceHours.toFixed(2)),
+          unpaidAbsenceHours: Number(unpaidAbsenceHours.toFixed(2))
       }
   })
 

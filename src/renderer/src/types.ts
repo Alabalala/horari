@@ -14,6 +14,9 @@ export type Shift = {
   employeeId: number
   startTime: string
   endTime: string
+  type: 'work' | 'absence'
+  absenceType?: 'holiday' | 'bank_holiday' | 'sick_leave' | 'unpaid' | 'other'
+  isPaid: boolean
   employeeName?: string
 }
 

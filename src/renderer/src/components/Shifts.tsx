@@ -40,7 +40,7 @@ import {
 } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 import ShiftContextMenu from './ShiftContextMenu'
-import { Employee, Shift } from '../types'
+import { Employee, Shift, BalanceAdjustment } from '../types'
 import { calculateMonthStats, MonthlyClosure } from '@renderer/lib/balanceUtils'
 import { cn } from '@renderer/lib/utils'
 import ShiftTimelineItem from './ShiftTimelineItem'
@@ -61,7 +61,8 @@ const ShiftTimelineContainer = ({
   onUpdateShift,
   onAddShift,
   onEditShift,
-  onContextMenu
+  onContextMenu,
+  isLocked
 }: {
   emp: Employee
   shifts: Shift[]
@@ -72,6 +73,7 @@ const ShiftTimelineContainer = ({
   onAddShift: () => void
   onEditShift: (shift: Shift) => void
   onContextMenu: (e: React.MouseEvent, shift: Shift) => void
+  isLocked?: boolean
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -108,11 +110,13 @@ const ShiftTimelineContainer = ({
        ))}
        
        {/* Hover Add Button (centered or following mouse? Centered is easier for now) */}
+       {!isLocked && (
        <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 pointer-events-none">
           <div className="bg-blue-600 text-white rounded-full w-6 h-6 flex-none flex items-center justify-center shadow-sm aspect-square">
              <Plus className="h-3 w-3" />
           </div>
        </div>
+       )}
     </div>
   )
 }
@@ -260,8 +264,8 @@ export default function Shifts(): React.JSX.Element {
     return () => clearTimeout(timer)
   }, [formData, isModalOpen, editingShift])
 
-  const fetchData = async (): Promise<void> => {
-    setLoading(true)
+  const fetchData = async (silent = false): Promise<void> => {
+    if (!silent) setLoading(true)
     setError(null)
     try {
       if (!window.api) {
@@ -286,22 +290,39 @@ export default function Shifts(): React.JSX.Element {
       let endStr: string | undefined
 
       if (view === 'week' || view === 'month') {
-        // Find latest closure to determine start point
+        const viewStart = view === 'month' ? startOfMonth(currentDate) : startOfWeek(currentDate, { weekStartsOn: 1 })
+        
+        // Always fetch at least the current view range to ensure visibility
+        const viewStartStr = viewStart.toISOString()
+        
         const sortedClosures = [...closureList]
             .filter(c => c.status === 'LOCKED')
             .sort((a, b) => b.monthId.localeCompare(a.monthId))
         
-        const latestClosure = sortedClosures[0]
+        // Find latest closure strictly before the current view period
+        const latestClosure = sortedClosures.find(c => c.monthId < format(viewStart, 'yyyy-MM'))
         
         if (latestClosure) {
             // Start from the beginning of the next month after the closure
             const closureDate = parseISO(latestClosure.monthId + '-01')
             const nextMonthStart = addDays(endOfMonth(closureDate), 1)
-            startStr = nextMonthStart.toISOString()
+            // If the calculated start is after our view start (shouldn't happen with correct logic, but safety first),
+            // use the view start.
+            if (nextMonthStart > viewStart) {
+                startStr = viewStartStr
+            } else {
+                startStr = nextMonthStart.toISOString()
+            }
         } else {
-            // No closures? Fetch everything to ensure correct initial balance calculation
+            // No prior closures? Fetch everything
             startStr = undefined 
         }
+
+        // Force startStr to be at most viewStart if it was somehow calculated later?
+        // Actually, let's just ensure we capture the view range.
+        // If we are viewing a closed month, latestClosure might be the month BEFORE it.
+        // So startStr = start of Closed Month. This is correct.
+
 
         // End date: End of the current view interval
         if (view === 'week') {
@@ -471,12 +492,50 @@ export default function Shifts(): React.JSX.Element {
       
       // Calculate stats
       // Ensure we have enough data. In month view, we have all shifts.
+      // We also need all balance adjustments to ensure the closure includes them
+      // And we need the latest closures to ensure we chain correctly
+      const [allAdjustments, freshClosures] = await Promise.all([
+        window.api.balanceAdjustments.get() as Promise<BalanceAdjustment[]>,
+        window.api.monthlyClosures.getAll() as Promise<MonthlyClosure[]>
+      ])
+
+      // Determine if we need to fetch historical shifts to fill gaps
+      let shiftsToUse = shifts
+      const prevClosure = freshClosures.find(c => c.monthId === prevMonthId && c.status === 'LOCKED')
+      
+      if (!prevClosure) {
+        // If previous month is not closed, we might need history to calculate gap from the last closure (or start of time)
+        // Find latest closure before this month
+        const sorted = [...freshClosures]
+            .filter(c => c.status === 'LOCKED' && c.monthId < monthId)
+            .sort((a, b) => b.monthId.localeCompare(a.monthId))
+        const latest = sorted[0]
+        
+        // Start from the month after the latest closure, or 2020 if none
+        const historyStart = latest 
+            ? startOfMonth(addMonths(parseISO(latest.monthId + '-01'), 1)).toISOString()
+            : '2020-01-01'
+            
+        const historyEnd = endOfMonth(currentDate).toISOString()
+        
+        try {
+            // Fetch all shifts in the gap period + current month
+            const historicalShifts = await window.api.shifts.getAll(historyStart, historyEnd) as Shift[]
+            if (historicalShifts && historicalShifts.length > 0) {
+                shiftsToUse = historicalShifts
+            }
+        } catch (e) {
+            console.error("Failed to fetch historical shifts for gap calculation", e)
+        }
+      }
+
       const stats = calculateMonthStats(
         currentDate,
         employees,
-        shifts,
-        monthlyClosures,
-        weeklyHoursOverrides
+        shiftsToUse,
+        freshClosures,
+        weeklyHoursOverrides,
+        allAdjustments
       )
       
       const closure: MonthlyClosure = {
@@ -547,71 +606,19 @@ export default function Shifts(): React.JSX.Element {
       .filter(e => e.department === destDept && e.id !== movedEmp.id)
       .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
     
-    // Strategy: Collect valid displayOrders from the destination group + the moved employee
-    // We want to preserve the "slots" these employees occupy in the global list
-    // If we moved departments, we assume the moved employee takes a "new" slot or we just use the dest group's slots + 1?
-    // Actually, if we move departments, the moved employee brings their old displayOrder.
-    // If we insert them into Dest Dept, we might not have enough "slots" in Dest Dept to maintain global order without collision.
-    // But for simplicity, let's just collect all displayOrders of the resulting group (including the moved one)
-    // and redistribute them.
-    
-    // If changing department, the moved employee is effectively joining the new group.
-    // We should include the moved employee in the "destEmployees" list before getting orders?
-    // The code below splices it in.
-    
-    // Let's get the pool of orders from the *target* state (destEmployees + movedEmp)
-    // But we need values.
-    // If we just entered the department, we might need to "steal" a value or generate one.
-    // Ideally, we re-index the *entire* database, but that's expensive.
-    // Local fix: use the values available in the destination department, plus one more?
-    // Or just use 0..N for the department?
-    // Reverting to my previous analysis: 0..N for department causes interleaving.
-    
-    // If we use "Permutation Strategy", we need N values for N people.
-    // If we add a person, we have N+1 people but only N values from the group.
-    // So "Permutation Strategy" only works for reordering *within* a group.
-    
-    // If moving *between* departments (groups):
-    // We are increasing the size of Dest Group. We need a new slot.
-    // And decreasing Source Group.
-    
-    // Given the complexity of cross-department drag causing order issues, 
-    // and the user's request "order stays always the same",
-    // maybe we should just enforce a global re-index in the background?
-    // Or, for now, just handle the "Reorder within group" case (common) using Permutation.
-    // And "Move between groups" case using 0..N (fallback) or some best effort.
-    
-    // Wait, the user said "order... stays same".
-    // If I move Alice from Dept A to Dept B, she is now in Dept B.
-    // Her global order should probably update to be with Dept B people?
-    // If Dept A and Dept B are interleaved, it's messy.
-    
-    // Let's stick to the "Permutation Strategy" which is robust for *reordering*.
-    // For *moving between departments*, we might just append to the end of the target group's values?
-    
-    // Collect orders from the people currently in the destination (before splice)
-    // plus the moved employee's order.
-    let ordersToDistribute = [...destEmployees.map(e => e.displayOrder || 0), movedEmp.displayOrder || 0].sort((a, b) => a - b)
+    // Strategy: Assign new, unique, increasing displayOrders to the destination group.
+    // We use Date.now() as a base to ensure uniqueness across potential other updates,
+    // and add the index to ensure strict ordering within the department.
+    const baseOrder = Date.now()
 
-    // Ensure distinct values if we have collisions or all zeros (initial state)
-    if (new Set(ordersToDistribute).size !== ordersToDistribute.length || ordersToDistribute.every(o => o === 0)) {
-        const base = Date.now()
-        // We have destEmployees (length N) + movedEmp (1) = N+1 items
-        // We need N+1 orders
-        ordersToDistribute = Array(destEmployees.length + 1).fill(0).map((_, i) => base + i)
-    }
-    
     // Insert at new index
     destEmployees.splice(destination.index, 0, movedEmp)
 
     // Reassign orders
     const updates: Promise<void>[] = []
     destEmployees.forEach((emp, index) => {
-      // Use the pool of orders
-      // If we have more employees than orders (shouldn't happen if we included movedEmp), safe.
-      // If we have duplicate orders in the pool, they remain duplicate.
-      // But at least we don't reset to 0,1,2.
-      emp.displayOrder = ordersToDistribute[index] !== undefined ? ordersToDistribute[index] : index
+      // Assign strictly increasing order
+      emp.displayOrder = baseOrder + index
       updates.push(window.api.employees.updateOrder(emp.id, emp.displayOrder))
     })
 
@@ -636,6 +643,10 @@ export default function Shifts(): React.JSX.Element {
   }
 
   const handleDeleteShiftDirectly = async (shift: Shift): Promise<void> => {
+    if (isMonthLocked(shift.startTime)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        return
+    }
     setConfirmState({
         isOpen: true,
         title: t('deleteShift'),
@@ -657,6 +668,15 @@ export default function Shifts(): React.JSX.Element {
   const handleSaveShift = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     if (overlapError) return // Prevent save if overlap
+
+    if (editingShift && isMonthLocked(editingShift.startTime)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        return
+    }
+    if (isMonthLocked(formData.date)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        return
+    }
 
     try {
         if (formData.type === 'absence') {
@@ -745,6 +765,10 @@ export default function Shifts(): React.JSX.Element {
 
   const handleDeleteShift = async (): Promise<void> => {
     if (!editingShift) return
+    if (isMonthLocked(editingShift.startTime)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        return
+    }
     setConfirmState({
         isOpen: true,
         title: t('deleteShift'),
@@ -770,7 +794,17 @@ export default function Shifts(): React.JSX.Element {
     setBusinessHourWarning(null)
   }
 
+  const isMonthLocked = (date: Date | string) => {
+    const d = typeof date === 'string' ? parseISO(date) : date
+    const monthId = format(d, 'yyyy-MM')
+    return monthlyClosures.some(c => c.monthId === monthId && c.status === 'LOCKED')
+  }
+
   const openAddModal = (employeeId: number, date: Date): void => {
+    if (isMonthLocked(date)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        return
+    }
     setEditingShift(null)
     setFormData({
       employeeId,
@@ -786,6 +820,10 @@ export default function Shifts(): React.JSX.Element {
   }
 
   const openEditModal = (shift: Shift): void => {
+    if (isMonthLocked(shift.startTime)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        return
+    }
     setEditingShift(shift)
     const start = parseISO(shift.startTime)
     const end = parseISO(shift.endTime)
@@ -803,6 +841,20 @@ export default function Shifts(): React.JSX.Element {
   }
 
   const handleUpdateShiftTimeline = async (id: number, startTime: string, endTime: string) => {
+     if (isMonthLocked(startTime)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        fetchData()
+        return
+     }
+     
+     // Check original shift time to prevent moving OUT of a locked month
+     const currentShift = shifts.find(s => s.id === id)
+     if (currentShift && isMonthLocked(currentShift.startTime)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        fetchData()
+        return
+     }
+
      // Validate business hours
     const start = parseISO(startTime)
     const end = parseISO(endTime)
@@ -825,7 +877,8 @@ export default function Shifts(): React.JSX.Element {
               await proceedUpdate(id, startTime, endTime)
           }
       })
-      fetchData() // Revert visually until confirmed
+      // Force a re-render to revert the drag visually until confirmed
+      setShifts([...shifts])
       return
     }
 
@@ -870,6 +923,9 @@ export default function Shifts(): React.JSX.Element {
         await window.api.shifts.update(id, { employeeId: currentShift.employeeId, startTime, endTime })
         // Optimistic update
         setShifts(prev => prev.map(s => s.id === id ? { ...s, startTime, endTime } : s))
+        
+        // Ensure persistence by refetching silently
+        await fetchData(true)
     } catch (err) {
         console.error("Failed to update shift", err)
         fetchData()
@@ -894,7 +950,7 @@ export default function Shifts(): React.JSX.Element {
   }, [currentDate, employees, shifts, monthlyClosures, weeklyHoursOverrides, view])
 
   // Calculate stats for Month View (Legacy/Week View support)
-  const getEmployeeMonthStats = (emp: Employee) => {
+  const getEmployeeMonthStats = (emp: Employee, strictMonth: boolean = true) => {
     // 1. Weekly breakdown
     const monthStart = startOfMonth(currentDate)
     const monthEnd = endOfMonth(currentDate)
@@ -912,12 +968,26 @@ export default function Shifts(): React.JSX.Element {
         
         const weekStr = weekStart.toISOString()
         const override = weeklyHoursOverrides[weekStr]?.[emp.id]
-        const agreed = override !== undefined ? override : (emp.defaultHours || 40)
+        const baseWeeklyHours = override !== undefined ? override : (emp.defaultHours || 40)
+        
+        let agreed = baseWeeklyHours
+
+        // Pro-rate agreed hours if week is split across months AND strictMonth is true
+        if (strictMonth) {
+            const daysInWeek = eachDayOfInterval({ start: weekStart, end: weekEnd })
+            const daysInCurrentMonth = daysInWeek.filter(d => 
+                d >= monthStart && d <= monthEnd
+            ).length
+            
+            if (daysInCurrentMonth < 7) {
+                agreed = (baseWeeklyHours / 7) * daysInCurrentMonth
+            }
+        }
         
         return {
             weekStart,
             worked,
-            agreed,
+            agreed: Number(agreed.toFixed(2)),
             diff: worked - agreed
         }
     })
@@ -979,8 +1049,12 @@ export default function Shifts(): React.JSX.Element {
             <div className="relative">
               <button
                 onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
-                className="text-sm font-medium min-w-[140px] text-center capitalize hover:bg-slate-100 dark:hover:bg-slate-800 rounded px-2 py-1 transition-colors"
+                className={cn(
+                    "text-sm font-medium min-w-[140px] text-center capitalize hover:bg-slate-100 dark:hover:bg-slate-800 rounded px-2 py-1 transition-colors flex items-center justify-center gap-2",
+                    isMonthLocked(currentDate) && "text-red-600 dark:text-red-400"
+                )}
               >
+                {isMonthLocked(currentDate) && <Lock className="h-3 w-3" />}
                 {view === 'week' 
                   ? `${format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'MMM d', { locale: dateLocale })} - ${format(endOfWeek(currentDate, { weekStartsOn: 1 }), 'MMM d', { locale: dateLocale })}`
                   : view === 'month' 
@@ -1179,26 +1253,46 @@ export default function Shifts(): React.JSX.Element {
             ) : view === 'month' ? (
                 <div className="flex-1 flex">
                     {monthWeeks.map((weekStart, i) => (
-                        <div key={weekStart.toISOString()} className="w-24 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">
+                        <div key={weekStart.toISOString()} className={cn(
+                            "w-24 flex-shrink-0 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center text-xs uppercase tracking-wider relative",
+                            isMonthLocked(weekStart) && "bg-slate-50/80 dark:bg-slate-900/40"
+                        )}>
+                            {isMonthLocked(weekStart) && (
+                                <div className="absolute top-1 right-1">
+                                    <Lock className="h-3 w-3 text-slate-300 dark:text-slate-600" />
+                                </div>
+                            )}
                             {t('week')} {i + 1}
                         </div>
                     ))}
                     {settings.visibleStats.totalWorked && (
-                        <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('totalWorked') || 'Total Worked'}</div>
+                        <div className="w-28 flex-shrink-0 p-4 font-semibold text-slate-600 dark:text-slate-300 border-l border-slate-200 dark:border-slate-800 text-center bg-slate-50/80 dark:bg-slate-900/50 text-xs uppercase tracking-wider">{t('totalWorked') || 'Worked'}</div>
                     )}
                     {settings.visibleStats.monthlyTarget && (
-                        <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('targetMonthly') || 'Monthly Target'}</div>
+                        <div className="w-28 flex-shrink-0 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center bg-slate-50/80 dark:bg-slate-900/50 text-xs uppercase tracking-wider">{t('targetMonthly') || 'Target'}</div>
                     )}
                     {settings.visibleStats.monthlyDiff && (
-                        <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('monthDiff') || 'Monthly Diff'}</div>
+                        <div className="w-28 flex-shrink-0 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center bg-slate-50/80 dark:bg-slate-900/50 text-xs uppercase tracking-wider">{t('monthDiff') || 'Diff'}</div>
                     )}
                     {settings.visibleStats.lifetimeBalance && (
-                        <div className="w-32 p-4 font-medium text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-800 text-center">{t('lifetimeBalance') || 'Lifetime Balance'}</div>
+                        <div className="w-32 flex-shrink-0 p-4 font-bold text-slate-700 dark:text-slate-200 border-l border-slate-200 dark:border-slate-800 text-center bg-slate-100 dark:bg-slate-800 text-xs uppercase tracking-wider shadow-inner">{t('lifetimeBalance') || 'Balance'}</div>
                     )}
                 </div>
             ) : (
                 days.map(day => (
-                  <div key={day.toISOString()} className={cn("flex-1 p-4 text-center border-l border-slate-200 dark:border-slate-800", isSameDay(day, new Date()) && "bg-blue-50/50 dark:bg-blue-500/5")}>
+                  <div 
+                    key={day.toISOString()} 
+                    className={cn(
+                        "flex-1 p-4 text-center border-l border-slate-200 dark:border-slate-800 relative overflow-hidden", 
+                        isSameDay(day, new Date()) && "bg-blue-50/50 dark:bg-blue-500/5",
+                        isMonthLocked(day) && "bg-slate-50/80 dark:bg-slate-900/40"
+                    )}
+                  >
+                    {isMonthLocked(day) && (
+                        <div className="absolute top-1 right-1">
+                            <Lock className="h-3 w-3 text-slate-300 dark:text-slate-600" />
+                        </div>
+                    )}
                     <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{format(day, 'EEE', { locale: dateLocale })}</div>
                     <div className={cn("text-sm font-semibold", isSameDay(day, new Date()) ? "text-blue-600 dark:text-blue-400" : "text-slate-900 dark:text-slate-200")}>{format(day, 'd', { locale: dateLocale })}</div>
                   </div>
@@ -1224,7 +1318,7 @@ export default function Shifts(): React.JSX.Element {
                               ref={provided.innerRef}
                               {...provided.draggableProps}
                               className={cn(
-                                "flex border-b border-slate-200 dark:border-slate-800 transition-colors hover:bg-slate-50 dark:hover:bg-slate-900/30",
+                                "flex items-stretch border-b border-slate-200 dark:border-slate-800 transition-colors hover:bg-slate-50 dark:hover:bg-slate-900/30",
                                 snapshot.isDragging && "bg-white dark:bg-slate-800 shadow-lg ring-1 ring-slate-200 dark:ring-slate-700 z-50"
                               )}
                             >
@@ -1245,8 +1339,9 @@ export default function Shifts(): React.JSX.Element {
                                        title={emp.name}
                                     >
                                        <span>{emp.name}</span>
+                                       {view === 'day' && isMonthLocked(currentDate) && <Lock className="h-3 w-3 text-red-500" />}
                                        {view === 'week' && (() => {
-                                           const stats = getEmployeeMonthStats(emp)
+                                           const stats = getEmployeeMonthStats(emp, false)
                                            const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
                                            const weekData = stats.weeklyData.find(w => isSameDay(w.weekStart, currentWeekStart))
                                            return weekData ? (
@@ -1268,7 +1363,7 @@ export default function Shifts(): React.JSX.Element {
                               </div>
 
                               {view === 'week' && (() => {
-                                  const stats = getEmployeeMonthStats(emp)
+                                  const stats = getEmployeeMonthStats(emp, false)
                                   const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
                                   // Find week data that matches the current week start
                                   const weekData = stats.weeklyData.find(w => isSameDay(w.weekStart, currentWeekStart))
@@ -1284,13 +1379,19 @@ export default function Shifts(): React.JSX.Element {
                                         {/* Progress Bar */}
                                         <div 
                                             className="h-6 w-full bg-slate-100 dark:bg-slate-800 rounded-md relative overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-700"
-                                            onClick={() => setWeeklyHoursModal({
-                                                isOpen: true,
-                                                employeeId: emp.id,
-                                                employeeName: emp.name,
-                                                weekStart: weekData.weekStart,
-                                                currentHours: weekData.agreed
-                                            })}
+                                            onClick={() => {
+                                                if (isMonthLocked(weekData.weekStart)) {
+                                                    alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+                                                    return
+                                                }
+                                                setWeeklyHoursModal({
+                                                    isOpen: true,
+                                                    employeeId: emp.id,
+                                                    employeeName: emp.name,
+                                                    weekStart: weekData.weekStart,
+                                                    currentHours: weekData.agreed
+                                                })
+                                            }}
                                         >
                                             <div 
                                                 className={cn(
@@ -1362,63 +1463,100 @@ export default function Shifts(): React.JSX.Element {
                                    onAddShift={() => openAddModal(emp.id, currentDate)}
                                    onEditShift={openEditModal}
                                    onContextMenu={handleContextMenu}
+                                   isLocked={isMonthLocked(currentDate)}
                                  />
                               ) : view === 'month' ? (
                                  (() => {
                                      const stats = getEmployeeMonthStats(emp)
                                      return (
-                                        <div className="flex-1 flex h-full items-stretch">
-                                            {stats.weeklyData.map((w, i) => (
-                                                <div 
-                                                    key={i} 
-                                                    className="w-24 border-l border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center p-1 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                                                    onClick={() => setWeeklyHoursModal({
+                                         <div className="flex-1 flex items-stretch">
+                                           {stats.weeklyData.map((w, i) => (
+                                               <div 
+                                                key={i} 
+                                                className={cn(
+                                                    "w-24 flex-shrink-0 border-l border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center p-1 transition-colors group/cell relative",
+                                                    isMonthLocked(w.weekStart) 
+                                                       ? "cursor-not-allowed bg-slate-50/50 dark:bg-slate-900/20"
+                                                       : "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                                                )}
+                                                onClick={() => {
+                                                    if (isMonthLocked(w.weekStart)) {
+                                                        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+                                                        return
+                                                    }
+                                                    setWeeklyHoursModal({
                                                         isOpen: true,
                                                         employeeId: emp.id,
                                                         employeeName: emp.name,
                                                         weekStart: w.weekStart,
                                                         currentHours: w.agreed
-                                                    })}
-                                                    title="Click to edit agreed hours"
-                                                >
-                                                    <div className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                                        {w.worked.toFixed(1)} / {w.agreed}
+                                                    })
+                                                }}
+                                                title="Click to edit agreed hours"
+                                            >
+                                                {isMonthLocked(w.weekStart) && (
+                                                    <div className="absolute top-0.5 right-0.5">
+                                                        <Lock className="h-2 w-2 text-slate-300 dark:text-slate-600" />
                                                     </div>
-                                                    <div className={cn("text-[10px] font-bold", w.diff < 0 ? "text-red-500" : "text-green-500")}>
-                                                        {w.diff > 0 ? '+' : ''}{w.diff.toFixed(1)}
+                                                )}
+                                                <div className="flex flex-col items-center gap-0.5">
+                                                        <div className="flex items-baseline gap-1 text-xs">
+                                                            <span className={cn("font-semibold", w.worked === 0 ? "text-slate-300 dark:text-slate-600" : "text-slate-700 dark:text-slate-300")}>
+                                                                {w.worked.toFixed(1)}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400">/ {w.agreed.toFixed(1)}</span>
+                                                        </div>
+                                                        <div className={cn(
+                                                            "text-[10px] font-medium px-1.5 rounded-full transition-opacity", 
+                                                            w.diff === 0 ? "opacity-0 group-hover/cell:opacity-100 bg-slate-100 text-slate-400" : 
+                                                            w.diff < 0 ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400" : "bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400"
+                                                        )}>
+                                                            {w.diff > 0 ? '+' : ''}{w.diff.toFixed(1)}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))}
-                                            {settings.visibleStats.totalWorked && (
-                                                <div className="w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-medium">
-                                                    {stats.totalWorked.toFixed(1)}
-                                                </div>
-                                            )}
-                                            {settings.visibleStats.monthlyTarget && (
-                                                <div className="w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm text-slate-500">
-                                                    {stats.totalAgreed}
-                                                </div>
-                                            )}
-                                            {settings.visibleStats.monthlyDiff && (
-                                                <div className={cn("w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-medium", stats.diff < 0 ? "text-red-500" : "text-green-500")}>
-                                                    {stats.diff > 0 ? '+' : ''}{stats.diff.toFixed(1)}
-                                                </div>
-                                            )}
-                                            {settings.visibleStats.lifetimeBalance && (
-                                                <div className={cn("w-32 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-bold", stats.lifetimeBalance < 0 ? "text-red-600" : "text-green-600")}>
-                                                    {stats.lifetimeBalance > 0 ? '+' : ''}{stats.lifetimeBalance.toFixed(1)}
-                                                </div>
-                                            )}
-                                        </div>
+                                               </div>
+                                           ))}
+                                           {settings.visibleStats.totalWorked && (
+                                               <div className="w-28 flex-shrink-0 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-bold text-slate-700 dark:text-slate-200 bg-slate-50/30 dark:bg-slate-900/20">
+                                                   {stats.totalWorked.toFixed(1)}
+                                               </div>
+                                           )}
+                                           {settings.visibleStats.monthlyTarget && (
+                                               <div className="w-28 flex-shrink-0 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm text-slate-400 bg-slate-50/30 dark:bg-slate-900/20">
+                                                   {stats.totalAgreed}
+                                               </div>
+                                           )}
+                                           {settings.visibleStats.monthlyDiff && (
+                                               <div className={cn("w-28 flex-shrink-0 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center bg-slate-50/30 dark:bg-slate-900/20", stats.diff === 0 ? "text-slate-300" : "")}>
+                                                   <span className={cn(
+                                                       "text-xs font-bold px-2 py-0.5 rounded-full",
+                                                       stats.diff < 0 ? "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400" : 
+                                                       stats.diff > 0 ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400" : ""
+                                                   )}>
+                                                       {stats.diff > 0 ? '+' : ''}{stats.diff.toFixed(1)}
+                                                   </span>
+                                               </div>
+                                           )}
+                                           {settings.visibleStats.lifetimeBalance && (
+                                               <div className={cn("w-32 flex-shrink-0 border-l border-slate-200 dark:border-slate-800 flex items-center justify-center text-sm font-bold bg-slate-100/50 dark:bg-slate-800/30 shadow-[inset_0_0_10px_rgba(0,0,0,0.02)]", stats.lifetimeBalance < 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400")}>
+                                                   {stats.lifetimeBalance > 0 ? '+' : ''}{stats.lifetimeBalance.toFixed(1)}
+                                               </div>
+                                           )}
+                                       </div>
                                     )
                                  })()
                               ) : (
                                   days.map(day => {
                                     const dayShifts = getShiftsForCell(emp.id, day)
+                                    const locked = isMonthLocked(day)
                                     return (
                                       <div 
                                         key={day.toISOString()} 
-                                        className={cn("flex-1 border-l border-slate-200 dark:border-slate-800 min-h-[80px] p-1 relative group", isSameDay(day, new Date()) && "bg-blue-50/20 dark:bg-blue-500/5")}
+                                        className={cn(
+                                            "flex-1 border-l border-slate-200 dark:border-slate-800 min-h-[80px] p-1 relative group", 
+                                            isSameDay(day, new Date()) && "bg-blue-50/20 dark:bg-blue-500/5",
+                                            locked && !isSameDay(day, new Date()) && "bg-slate-50/50 dark:bg-slate-900/20"
+                                        )}
                                         onClick={() => openAddModal(emp.id, day)}
                                       >
                                         <div className="h-full w-full flex flex-col gap-1 cursor-pointer">
@@ -1436,11 +1574,13 @@ export default function Shifts(): React.JSX.Element {
                                             </div>
                                           ))}
                                           {/* Hover Add Button */}
+                                          {!locked && (
                                           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
                                             <div className="bg-blue-600 text-white rounded-full w-6 h-6 flex-none flex items-center justify-center shadow-sm aspect-square">
                                               <Plus className="h-3 w-3" />
                                             </div>
                                           </div>
+                                          )}
                                         </div>
                                       </div>
                                     )
@@ -1458,64 +1598,91 @@ export default function Shifts(): React.JSX.Element {
              ))}
            </DragDropContext>
           
-          {view === 'month' && (
-             <div className="mt-8 border-t border-slate-200 dark:border-slate-800 pt-8">
-                <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-4 px-4">{t('calendar') || 'Calendar'}</h3>
-                <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50">
-                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(dayName => (
-                        <div key={dayName} className="p-2 text-center text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/50 border-r border-slate-200 dark:border-slate-800 last:border-r-0">
-                            {dayName}
-                        </div>
-                    ))}
-                    {calendarDays.map((day, i) => {
-                      const dayShifts = shifts.filter((s) => isSameDay(parseISO(s.startTime), day))
-                      const isToday = isSameDay(day, new Date())
-                      const isCurrentMonth = day.getMonth() === currentDate.getMonth()
-                      
-                      return (
-                        <div
-                          key={day.toISOString()}
-                          className={cn(
-                              'min-h-[120px] p-2 transition-colors relative group border-r border-b border-slate-200 dark:border-slate-800',
-                              (i + 1) % 7 === 0 && 'border-r-0',
-                              isToday && 'bg-blue-50/50 dark:bg-blue-500/5',
-                              !isCurrentMonth && 'bg-slate-50/50 dark:bg-slate-900/20 opacity-60'
-                          )}
-                          onClick={() => openAddModal(0, day)}
-                        >
-                          <div className="flex justify-between items-start mb-1">
-                              <span className={cn("text-xs font-medium", isToday ? "text-blue-600" : "text-slate-500")}>
-                                  {format(day, 'd')}
-                              </span>
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button className="text-blue-600 hover:text-blue-700 p-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30">
-                                      <Plus className="h-3 w-3" />
-                                  </button>
+          {view === 'month' && settings.showCalendar && (
+             <div className="mt-16 px-1">
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-2xl font-bold text-slate-800 dark:text-slate-200">
+                        {t('calendar') || 'Calendar'} <span className="text-slate-400 dark:text-slate-600 font-light">|</span> {format(currentDate, 'MMMM yyyy', { locale: dateLocale })}
+                    </h3>
+                </div>
+                
+                <div className="bg-slate-200 dark:bg-slate-800 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm">
+                    {/* Weekday Headers */}
+                    <div className="grid grid-cols-7 bg-slate-50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800">
+                        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(dayName => (
+                            <div key={dayName} className="py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                {dayName}
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Calendar Grid */}
+                    <div className="grid grid-cols-7 gap-px bg-slate-200 dark:bg-slate-800">
+                        {calendarDays.map((day, i) => {
+                          const dayShifts = shifts.filter((s) => isSameDay(parseISO(s.startTime), day))
+                          const isToday = isSameDay(day, new Date())
+                          const isCurrentMonth = day.getMonth() === currentDate.getMonth()
+                          const isLocked = isMonthLocked(day)
+                          
+                          return (
+                            <div
+                              key={day.toISOString()}
+                              className={cn(
+                                  'min-h-[120px] p-2 transition-colors relative group bg-white dark:bg-slate-900',
+                                  !isCurrentMonth && 'bg-slate-50/50 dark:bg-slate-900/50 opacity-60',
+                                  isLocked && 'bg-slate-50 dark:bg-slate-900/50'
+                              )}
+                              onClick={() => !isLocked && openAddModal(0, day)}
+                            >
+                              {isLocked && (
+                                <div className="absolute top-1 right-1 z-10">
+                                    <Lock className="h-3 w-3 text-slate-300 dark:text-slate-600" />
+                                </div>
+                              )}
+                              <div className="flex justify-between items-start mb-2">
+                                  <span className={cn(
+                                      "text-xs font-semibold px-2 py-0.5 rounded-full",
+                                      isToday 
+                                        ? "bg-blue-600 text-white" 
+                                        : isCurrentMonth 
+                                            ? "text-slate-700 dark:text-slate-300" 
+                                            : "text-slate-400"
+                                  )}>
+                                      {format(day, 'd')}
+                                  </span>
+                                  {!isLocked && (
+                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <button className="text-blue-600 hover:text-blue-700 p-1 rounded-full hover:bg-blue-50 dark:hover:bg-blue-900/30">
+                                          <Plus className="h-3 w-3" />
+                                      </button>
+                                  </div>
+                                  )}
                               </div>
-                          </div>
-                          <div className="space-y-1 overflow-y-auto max-h-[100px] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
-                              {dayShifts.map(shift => {
-                                  const emp = employees.find(e => e.id === shift.employeeId)
-                                  if (!emp) return null
-                                  return (
-                                      <div key={shift.id} 
-                                           className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded px-1 py-0.5 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 flex items-center gap-1"
-                                           onClick={(e) => {
-                                               e.stopPropagation()
-                                               openEditModal(shift)
-                                           }}
-                                           onContextMenu={(e) => handleContextMenu(e, shift)}
-                                           title={`${emp.name}: ${format(parseISO(shift.startTime), 'HH:mm')} - ${format(parseISO(shift.endTime), 'HH:mm')}`}
-                                      >
-                                          <span className="font-semibold truncate max-w-[60px]">{emp.name}</span>
-                                          <span className="opacity-75">{format(parseISO(shift.startTime), 'HH:mm')}</span>
-                                      </div>
-                                  )
-                              })}
-                          </div>
-                        </div>
-                      )
-                    })}
+                              <div className="space-y-1 overflow-y-auto max-h-[100px] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
+                                  {dayShifts.map(shift => {
+                                      const emp = employees.find(e => e.id === shift.employeeId)
+                                      if (!emp) return null
+                                      return (
+                                          <div key={shift.id} 
+                                               className="text-[10px] bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800 rounded px-1.5 py-0.5 cursor-pointer hover:border-blue-300 dark:hover:border-blue-600 transition-colors flex items-center gap-1.5 shadow-sm"
+                                               onClick={(e) => {
+                                                   e.stopPropagation()
+                                                   openEditModal(shift)
+                                               }}
+                                               onContextMenu={(e) => handleContextMenu(e, shift)}
+                                               title={`${emp.name}: ${format(parseISO(shift.startTime), 'HH:mm')} - ${format(parseISO(shift.endTime), 'HH:mm')}`}
+                                          >
+                                              <div className="w-1 h-1 rounded-full bg-blue-400 dark:bg-blue-500 shrink-0" />
+                                              <span className="font-semibold truncate max-w-[60px]">{emp.name}</span>
+                                              <span className="opacity-75 text-[9px]">{format(parseISO(shift.startTime), 'HH:mm')}</span>
+                                          </div>
+                                      )
+                                  })}
+                              </div>
+                            </div>
+                          )
+                        })}
+                    </div>
                 </div>
              </div>
           )}
@@ -1772,6 +1939,10 @@ export default function Shifts(): React.JSX.Element {
                 </div>
                 <form onSubmit={async (e) => {
                     e.preventDefault()
+                    if (isMonthLocked(weeklyHoursModal.weekStart)) {
+                        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+                        return
+                    }
                     const formData = new FormData(e.currentTarget)
                     const hours = parseFloat(formData.get('hours') as string)
                     if (!isNaN(hours)) {

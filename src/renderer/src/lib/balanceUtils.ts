@@ -12,7 +12,7 @@ import {
   isSameDay,
   addMonths
 } from 'date-fns'
-import { Employee, Shift } from '../types'
+import { Employee, Shift, BalanceAdjustment } from '../types'
 
 export interface MonthlyClosure {
   monthId: string
@@ -42,7 +42,7 @@ const getDailyLiability = (
   const weekStart = startOfWeek(date, { weekStartsOn: 1 })
   const weekStr = weekStart.toISOString()
   
-  let weeklyHours = employee.defaultHours
+  let weeklyHours = employee.defaultHours ?? 40
   if (weeklyHoursOverrides[weekStr] && weeklyHoursOverrides[weekStr][employee.id] !== undefined) {
     weeklyHours = weeklyHoursOverrides[weekStr][employee.id]
   }
@@ -55,7 +55,8 @@ export const calculateMonthStats = (
   employees: Employee[],
   allShifts: Shift[], // Should contain enough shifts (at least for the calculation window)
   monthlyClosures: MonthlyClosure[],
-  weeklyHoursOverrides: Record<string, Record<number, number>>
+  weeklyHoursOverrides: Record<string, Record<number, number>>,
+  balanceAdjustments: BalanceAdjustment[] = []
 ): Record<number, StoredEmployeeBalance> => {
   try {
     if (!employees || !Array.isArray(employees)) return {}
@@ -69,6 +70,7 @@ export const calculateMonthStats = (
   const calculateDifferenceForMonth = (mDate: Date): Record<number, number> => {
     const mStart = startOfMonth(mDate)
     const mEnd = endOfMonth(mDate)
+    const mId = format(mDate, 'yyyy-MM')
     const daysInMonth = eachDayOfInterval({ start: mStart, end: mEnd })
     
     const diffs: Record<number, number> = {}
@@ -98,7 +100,12 @@ export const calculateMonthStats = (
           return sum + (differenceInMinutes(end, start) / 60)
         }, 0)
         
-        diffs[emp.id] = actuals - target
+        // Adjustments for this month
+        const adjustments = balanceAdjustments
+          .filter(a => a.employeeId === emp.id && a.monthId === mId)
+          .reduce((sum, a) => sum + a.amount, 0)
+
+        diffs[emp.id] = actuals - target + adjustments
     })
     
     return diffs
@@ -106,6 +113,13 @@ export const calculateMonthStats = (
 
   // 1. Calculate Previous Balance
   const prevBalances: Record<number, number> = {}
+  
+  // Initialize with initial balances for all employees
+  // This ensures that if an employee is not found in the previous closure (e.g. new hire),
+  // their initial balance is respected instead of defaulting to 0.
+  employees.forEach(emp => {
+      prevBalances[emp.id] = emp.initialBalance || 0
+  })
 
   // Check if previous month is closed
   const prevClosure = monthlyClosures.find(c => c.monthId === prevMonthId && c.status === 'LOCKED')
@@ -114,6 +128,7 @@ export const calculateMonthStats = (
     try {
       const parsed = JSON.parse(prevClosure.balances) as StoredEmployeeBalance[]
       parsed.forEach(b => {
+        // Overwrite with the actual settled balance from the closure
         prevBalances[b.employeeId] = b.accumulatedBalance
       })
     } catch (e) {
@@ -129,10 +144,7 @@ export const calculateMonthStats = (
     
     const latestClosure = sortedClosures[0]
     
-    // Initialize with initial balance
-    employees.forEach(emp => {
-        prevBalances[emp.id] = emp.initialBalance || 0
-    })
+    // Initial balances already set above
 
     // Load latest closure if exists
     if (latestClosure) {
@@ -151,7 +163,12 @@ export const calculateMonthStats = (
         ? startOfMonth(addDays(parseISO(latestClosure.monthId + '-01'), 32)) 
         : undefined
     
-    if (!gapStart && allShifts.length > 0) {
+    // Only look back at shift history if there are NO closures in the system at all.
+    // If there is at least one closed month, that First Closed Month is the start of time.
+    // We do not accumulate from shifts prior to the first closure.
+    const hasAnyClosures = monthlyClosures.some(c => c.status === 'LOCKED')
+
+    if (!gapStart && !hasAnyClosures && allShifts.length > 0) {
         const sortedShifts = [...allShifts].sort((a, b) => a.startTime.localeCompare(b.startTime))
         gapStart = startOfMonth(parseISO(sortedShifts[0].startTime))
     }
@@ -214,7 +231,12 @@ export const calculateMonthStats = (
 
       const actuals = workedHours + paidAbsenceHours + unpaidAbsenceHours
 
-      const diff = actuals - target
+      // Adjustments for target month
+      const adjustments = balanceAdjustments
+        .filter(a => a.employeeId === emp.id && a.monthId === monthId)
+        .reduce((sum, a) => sum + a.amount, 0)
+
+      const diff = actuals - target + adjustments
       const prev = prevBalances[emp.id] || 0
 
       results[emp.id] = {

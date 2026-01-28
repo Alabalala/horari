@@ -219,7 +219,7 @@ export default function PrintWeekModal({
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
           >
             {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            Export PNG
+            {t('exportPNG') || 'Export PNG'}
           </button>
           <button
             onClick={() => handleExport('pdf')}
@@ -227,7 +227,7 @@ export default function PrintWeekModal({
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium shadow-sm transition-colors disabled:opacity-50"
           >
             {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            Export PDF
+            {t('exportPDF') || 'Export PDF'}
           </button>
         </div>
       </div>

@@ -57,6 +57,17 @@ declare global {
         }) => Promise<void>
         delete: (monthId: string) => Promise<void>
       }
+      balanceAdjustments: {
+        get: (employeeId?: number) => Promise<unknown[]>
+        add: (adjustment: {
+          employeeId: number
+          monthId: string
+          amount: number
+          description: string
+          createdAt: string
+        }) => Promise<void>
+        delete: (id: number) => Promise<void>
+      }
       settings: {
         getAll: () => Promise<Record<string, string>>
         update: (key: string, value: string) => Promise<void>

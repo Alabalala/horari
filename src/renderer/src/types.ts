@@ -26,3 +26,12 @@ export type MonthlyHours = {
   month: string
   hours: number
 }
+
+export type BalanceAdjustment = {
+  id: number
+  employeeId: number
+  monthId: string
+  amount: number
+  description: string
+  createdAt: string
+}

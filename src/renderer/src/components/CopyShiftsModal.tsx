@@ -55,12 +55,14 @@ export default function CopyShiftsModal({
   const [warning, setWarning] = useState<string | null>(null)
   const [isCopying, setIsCopying] = useState(false)
   const [sourceCount, setSourceCount] = useState(0)
+  const [monthlyClosures, setMonthlyClosures] = useState<MonthlyClosure[]>([])
 
   const dateLocale = settings.language === 'es' ? es : undefined
 
-  // Load employees
+  // Load employees and closures
   useEffect(() => {
     window.api.employees.getAll().then((data) => setEmployees(data as Employee[]))
+    window.api.monthlyClosures.getAll().then((data) => setMonthlyClosures(data))
   }, [])
 
   // Reset state when opening
@@ -199,6 +201,12 @@ export default function CopyShiftsModal({
     }
   }
 
+  const isMonthLocked = (date: Date | string) => {
+    const d = typeof date === 'string' ? parseISO(date) : date
+    const monthId = format(d, 'yyyy-MM')
+    return monthlyClosures.some(c => c.monthId === monthId && c.status === 'LOCKED')
+  }
+
   const handleCopy = async () => {
     if (view !== 'day' && !targetDate) return
     if (view === 'day' && targetDates.length === 0 && !targetDate) return
@@ -215,6 +223,23 @@ export default function CopyShiftsModal({
     }
 
     if (finalTargetDates.length === 0) return
+
+    // Check if any target date falls in a locked month
+    for (const tDateStr of finalTargetDates) {
+        const tDate = new Date(tDateStr)
+        const rangeStart = getRangeStart(tDate)
+        const rangeEnd = getRangeEnd(tDate)
+
+        // Iterate through days in range to check lock
+        let current = rangeStart
+        while (current <= rangeEnd) {
+            if (isMonthLocked(current)) {
+                alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+                return
+            }
+            current = addDays(current, 1)
+        }
+    }
 
     setIsCopying(true)
 
@@ -437,7 +462,7 @@ export default function CopyShiftsModal({
                     {/* Selected Dates List (Only for Day view) */}
                     {view === 'day' && targetDates.length > 0 && (
                         <div className="mt-3 space-y-2">
-                            <div className="text-xs font-medium text-slate-500">Selected Dates:</div>
+                            <div className="text-xs font-medium text-slate-500">{t('selectedDates') || 'Selected Dates'}:</div>
                             <div className="flex flex-wrap gap-2">
                                 {targetDates.map(date => (
                                     <div key={date} className="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-2 py-1 rounded text-sm">

@@ -1,5 +1,6 @@
 import React from 'react'
 import { X } from 'lucide-react'
+import { useSettings } from '../hooks/useSettings'
 
 interface ConfirmModalProps {
   isOpen: boolean
@@ -18,10 +19,14 @@ export default function ConfirmModal({
   message,
   onConfirm,
   onCancel,
-  confirmText = 'Confirm',
-  cancelText = 'Cancel',
+  confirmText,
+  cancelText,
   type = 'info'
 }: ConfirmModalProps) {
+  const { t } = useSettings()
+  const finalConfirmText = confirmText || t('confirm') || 'Confirm'
+  const finalCancelText = cancelText || t('cancel') || 'Cancel'
+
   if (!isOpen) return null
 
   return (
@@ -48,7 +53,7 @@ export default function ConfirmModal({
             onClick={onCancel}
             className="rounded-md border border-slate-200 dark:border-slate-800 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
           >
-            {cancelText}
+            {finalCancelText}
           </button>
           <button
             onClick={onConfirm}
@@ -60,7 +65,7 @@ export default function ConfirmModal({
                   : 'bg-blue-600 hover:bg-blue-700'
             }`}
           >
-            {confirmText}
+            {finalConfirmText}
           </button>
         </div>
       </div>

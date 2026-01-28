@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Download, RefreshCw, X, AlertCircle, CheckCircle } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
+import { useSettings } from '../hooks/useSettings'
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
 
 export default function UpdateNotifier(): React.JSX.Element | null {
+  const { t } = useSettings()
   const [status, setStatus] = useState<UpdateStatus>('idle')
   const [progress, setProgress] = useState<number>(0)
   const [version, setVersion] = useState<string>('')
@@ -88,23 +90,23 @@ export default function UpdateNotifier(): React.JSX.Element | null {
         <div className="flex-1">
           {status === 'available' && (
             <div>
-              <h4 className="font-medium text-slate-900 dark:text-slate-100">Update Available</h4>
+              <h4 className="font-medium text-slate-900 dark:text-slate-100">{t('updateAvailable')}</h4>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                Version {version} is available.
+                {t('versionAvailable').replace('{version}', version)}
               </p>
               <button
                 onClick={handleDownload}
                 className="mt-3 text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md font-medium transition-colors inline-flex items-center gap-2"
               >
                 <Download className="w-4 h-4" />
-                Download Update
+                {t('downloadUpdate')}
               </button>
             </div>
           )}
 
           {status === 'downloading' && (
             <div>
-              <h4 className="font-medium text-slate-900 dark:text-slate-100">Downloading Update...</h4>
+              <h4 className="font-medium text-slate-900 dark:text-slate-100">{t('downloadingUpdate')}</h4>
               <div className="mt-2 w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2.5">
                 <div 
                   className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
@@ -119,25 +121,25 @@ export default function UpdateNotifier(): React.JSX.Element | null {
 
           {status === 'downloaded' && (
             <div>
-              <h4 className="font-medium text-slate-900 dark:text-slate-100">Update Ready</h4>
+              <h4 className="font-medium text-slate-900 dark:text-slate-100">{t('updateReady')}</h4>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                Version {version} has been downloaded.
+                {t('updateDownloaded').replace('{version}', version)}
               </p>
               <button
                 onClick={handleInstall}
                 className="mt-3 text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md font-medium transition-colors inline-flex items-center gap-2"
               >
                 <RefreshCw className="w-4 h-4" />
-                Restart & Install
+                {t('restartInstall')}
               </button>
             </div>
           )}
 
           {status === 'error' && (
             <div>
-              <h4 className="font-medium text-red-600">Update Failed</h4>
+              <h4 className="font-medium text-red-600">{t('updateFailed')}</h4>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                {error || 'An error occurred while updating.'}
+                {error || t('updateErrorGeneric')}
               </p>
             </div>
           )}

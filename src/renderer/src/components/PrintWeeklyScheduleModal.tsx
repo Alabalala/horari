@@ -503,7 +503,7 @@ export default function PrintWeeklyScheduleModal({
                     onClick={() => setIsDeptOpen(!isDeptOpen)}
                     className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
                 >
-                    <span>{t('departments') || 'Departments'} ({selectedDepartments.includes('all') ? 'All' : selectedDepartments.length})</span>
+                    <span>{t('departments') || 'Departments'} ({selectedDepartments.includes('all') ? (t('all') || 'All') : selectedDepartments.length})</span>
                     <ChevronDown className="h-4 w-4 text-slate-500" />
                 </button>
                 

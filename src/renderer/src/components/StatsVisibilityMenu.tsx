@@ -43,6 +43,21 @@ export function StatsVisibilityMenu({ className }: StatsVisibilityMenuProps): Re
 
       {isOpen && (
         <div className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg z-50 p-2">
+          {/* General View Options */}
+          <div className="space-y-1 mb-2">
+            <button
+              onClick={() => updateSetting('showCalendar', !settings.showCalendar)}
+              className="w-full flex items-center justify-between px-2 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-left"
+            >
+              <span>{t('showCalendar') || 'Show Calendar'}</span>
+              {settings.showCalendar && (
+                <Check className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              )}
+            </button>
+          </div>
+          
+          <div className="h-px bg-slate-200 dark:bg-slate-800 my-1 mx-2" />
+
           <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 px-2 py-1 mb-1 uppercase tracking-wider">
             {t('visibleStats') || 'Visible Stats'}
           </div>

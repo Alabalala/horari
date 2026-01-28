@@ -26,7 +26,10 @@ import {
   getMonthlyClosure,
   getAllMonthlyClosures,
   setMonthlyClosure,
-  deleteMonthlyClosure
+  deleteMonthlyClosure,
+  getBalanceAdjustments,
+  addBalanceAdjustment,
+  deleteBalanceAdjustment
 } from './db'
 
 function createWindow(): void {
@@ -208,6 +211,17 @@ app.whenReady().then(() => {
     })
     ipcMain.handle('delete-monthly-closure', (_, monthId) => {
       return deleteMonthlyClosure(monthId)
+    })
+
+    // Balance Adjustments
+    ipcMain.handle('get-balance-adjustments', (_, employeeId) => {
+      return getBalanceAdjustments(employeeId)
+    })
+    ipcMain.handle('add-balance-adjustment', (_, adjustment) => {
+      return addBalanceAdjustment(adjustment)
+    })
+    ipcMain.handle('delete-balance-adjustment', (_, id) => {
+      return deleteBalanceAdjustment(id)
     })
 
     // Settings

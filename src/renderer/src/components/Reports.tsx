@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { FileText, ChevronRight, Lock, Calendar, Download } from 'lucide-react'
+import { FileText, ChevronRight, Lock, Calendar, Download, Printer, Search, Users, Clock, CreditCard, TrendingUp } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 import { MonthlyClosure, StoredEmployeeBalance } from '../lib/balanceUtils'
 import { cn } from '../lib/utils'
@@ -12,6 +12,7 @@ export default function Reports(): React.JSX.Element {
   
   const [closures, setClosures] = useState<MonthlyClosure[]>([])
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
   
   useEffect(() => {
     fetchClosures()
@@ -40,6 +41,22 @@ export default function Reports(): React.JSX.Element {
     }
   }, [selectedClosure])
 
+  const filteredBalances = useMemo(() => {
+    if (!searchQuery) return balances
+    const lowerQuery = searchQuery.toLowerCase()
+    return balances.filter(b => b.name.toLowerCase().includes(lowerQuery))
+  }, [balances, searchQuery])
+
+  const stats = useMemo(() => {
+    const totalEmployees = balances.length
+    const totalWorked = balances.reduce((sum, b) => sum + (b.workedHours || b.actualHours || 0), 0)
+    const totalPaidAbsence = balances.reduce((sum, b) => sum + (b.paidAbsenceHours || 0), 0)
+    const totalPayroll = totalWorked + totalPaidAbsence
+    const netBalanceChange = balances.reduce((sum, b) => sum + b.monthlyDifference, 0)
+
+    return { totalEmployees, totalWorked, totalPaidAbsence, totalPayroll, netBalanceChange }
+  }, [balances])
+
   const handleExportCSV = () => {
     if (!selectedClosure || !balances.length) return
 
@@ -56,7 +73,7 @@ export default function Reports(): React.JSX.Element {
     ]
 
     const rows = balances.map(b => {
-        const worked = b.workedHours ?? b.actualHours // Fallback for old records
+        const worked = b.workedHours ?? b.actualHours
         const paid = b.paidAbsenceHours ?? 0
         const unpaid = b.unpaidAbsenceHours ?? 0
         const payroll = worked + paid
@@ -89,9 +106,13 @@ export default function Reports(): React.JSX.Element {
     document.body.removeChild(link)
   }
 
+  const handlePrint = () => {
+    window.print()
+  }
+
   return (
-    <div className="mx-auto flex h-[calc(100vh-4rem)] max-w-7xl flex-col gap-6 p-6">
-      <header>
+    <div className="mx-auto flex h-[calc(100vh-4rem)] max-w-7xl flex-col gap-6 p-6 print:h-auto print:max-w-none print:p-0">
+      <header className="print:hidden">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">
           {t('reports') || 'Reports'}
         </h1>
@@ -100,9 +121,9 @@ export default function Reports(): React.JSX.Element {
         </p>
       </header>
 
-      <div className="flex flex-1 gap-6 overflow-hidden">
-        {/* Sidebar List */}
-        <div className="w-64 flex-shrink-0 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50">
+      <div className="flex flex-1 gap-6 overflow-hidden print:overflow-visible print:block">
+        {/* Sidebar List - Hidden in Print */}
+        <div className="w-64 flex-shrink-0 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 print:hidden">
           <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               {t('closedMonths') || 'Closed Months'}
@@ -151,10 +172,10 @@ export default function Reports(): React.JSX.Element {
         </div>
 
         {/* Detail View */}
-        <div className="flex-1 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 flex flex-col">
+        <div className="flex-1 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 flex flex-col print:border-none print:bg-transparent print:overflow-visible">
           {selectedClosure ? (
             <>
-              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 p-6">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 p-6 print:border-none print:p-0 print:mb-6">
                 <div>
                   <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50 capitalize">
                     {format(parseISO(selectedClosure.monthId + '-01'), 'MMMM yyyy', { locale: dateLocale })}
@@ -170,57 +191,136 @@ export default function Reports(): React.JSX.Element {
                     </span>
                   </div>
                 </div>
-                <button
-                    onClick={handleExportCSV}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors shadow-sm"
-                    title={t('exportCSVDescription') || "Export to CSV (Excel compatible)"}
-                >
-                    <Download className="h-4 w-4" />
-                    {t('exportCSV') || 'Export CSV'}
-                </button>
+                <div className="flex items-center gap-2 print:hidden">
+                    <div className="relative mr-2">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <input 
+                            type="text"
+                            placeholder={t('searchEmployees') || "Search employees..."}
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="h-9 w-64 rounded-md border border-slate-200 bg-white px-9 py-1 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                        />
+                    </div>
+                    <button
+                        onClick={handlePrint}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors shadow-sm dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700"
+                        title={t('print') || "Print Report"}
+                    >
+                        <Printer className="h-4 w-4" />
+                        {t('print') || 'Print'}
+                    </button>
+                    <button
+                        onClick={handleExportCSV}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors shadow-sm"
+                        title={t('exportCSVDescription') || "Export to CSV (Excel compatible)"}
+                    >
+                        <Download className="h-4 w-4" />
+                        {t('exportCSV') || 'Export CSV'}
+                    </button>
+                </div>
               </div>
 
-              <div className="flex-1 overflow-auto p-0">
+              {/* Summary Stats Cards */}
+              <div className="grid grid-cols-4 gap-4 p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/20 print:grid-cols-4 print:gap-4 print:p-0 print:mb-6 print:border-none print:bg-transparent">
+                <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 print:border print:border-slate-200">
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                        <Users className="h-4 w-4" />
+                        {t('totalEmployees') || 'Employees'}
+                    </div>
+                    <div className="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-50">
+                        {stats.totalEmployees}
+                    </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 print:border print:border-slate-200">
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                        <Clock className="h-4 w-4" />
+                        {t('totalWorked') || 'Total Worked'}
+                    </div>
+                    <div className="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-50">
+                        {stats.totalWorked.toFixed(1)} <span className="text-sm font-normal text-slate-500">h</span>
+                    </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 print:border print:border-slate-200">
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                        <CreditCard className="h-4 w-4" />
+                        {t('payrollHours') || 'Payroll Hours'}
+                    </div>
+                    <div className="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-50">
+                        {stats.totalPayroll.toFixed(1)} <span className="text-sm font-normal text-slate-500">h</span>
+                    </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 print:border print:border-slate-200">
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                        <TrendingUp className="h-4 w-4" />
+                        {t('netBalance') || 'Net Balance'}
+                    </div>
+                    <div className={cn(
+                        "mt-2 text-2xl font-semibold",
+                        stats.netBalanceChange > 0 ? "text-emerald-600 dark:text-emerald-400" : 
+                        stats.netBalanceChange < 0 ? "text-red-600 dark:text-red-400" : 
+                        "text-slate-900 dark:text-slate-50"
+                    )}>
+                        {stats.netBalanceChange > 0 ? '+' : ''}{stats.netBalanceChange.toFixed(1)} <span className="text-sm font-normal text-slate-500">h</span>
+                    </div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-auto p-0 print:overflow-visible">
                 <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 dark:bg-slate-900 text-xs font-medium uppercase text-slate-500 dark:text-slate-400 sticky top-0">
+                  <thead className="bg-slate-50 dark:bg-slate-900 text-xs font-medium uppercase text-slate-500 dark:text-slate-400 sticky top-0 print:static">
                     <tr>
                       <th className="px-6 py-3">{t('employee') || 'Employee'}</th>
-                      <th className="px-6 py-3 text-right">{t('targetHours') || 'Target Hours'}</th>
-                      <th className="px-6 py-3 text-right">{t('actualHours') || 'Actual Hours'}</th>
-                      <th className="px-6 py-3 text-right">{t('difference') || 'Difference'}</th>
-                      <th className="px-6 py-3 text-right">{t('accumulatedBalance') || 'Accumulated Balance'}</th>
+                      <th className="px-6 py-3 text-right">{t('targetHours') || 'Target'}</th>
+                      <th className="px-6 py-3 text-right">{t('workedHours') || 'Worked'}</th>
+                      <th className="px-6 py-3 text-right">{t('paidAbsence') || 'Paid Abs.'}</th>
+                      <th className="px-6 py-3 text-right">{t('payrollHours') || 'Payroll'}</th>
+                      <th className="px-6 py-3 text-right">{t('difference') || 'Diff'}</th>
+                      <th className="px-6 py-3 text-right">{t('accumulatedBalance') || 'Balance'}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {balances.map(balance => (
-                      <tr key={balance.employeeId} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-200">
-                          {balance.name}
-                        </td>
-                        <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-400">
-                          {balance.targetHours.toFixed(1)}
-                        </td>
-                        <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-400">
-                          {balance.actualHours.toFixed(1)}
-                        </td>
-                        <td className={cn(
-                          "px-6 py-4 text-right font-medium",
-                          balance.monthlyDifference > 0 ? "text-emerald-600 dark:text-emerald-400" : 
-                          balance.monthlyDifference < 0 ? "text-red-600 dark:text-red-400" : 
-                          "text-slate-600 dark:text-slate-400"
-                        )}>
-                          {balance.monthlyDifference > 0 ? '+' : ''}{balance.monthlyDifference.toFixed(1)}
-                        </td>
-                        <td className={cn(
-                          "px-6 py-4 text-right font-bold",
-                          balance.accumulatedBalance > 0 ? "text-emerald-600 dark:text-emerald-400" : 
-                          balance.accumulatedBalance < 0 ? "text-red-600 dark:text-red-400" : 
-                          "text-slate-600 dark:text-slate-400"
-                        )}>
-                          {balance.accumulatedBalance > 0 ? '+' : ''}{balance.accumulatedBalance.toFixed(1)}
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredBalances.map(balance => {
+                        const worked = balance.workedHours ?? balance.actualHours
+                        const paid = balance.paidAbsenceHours ?? 0
+                        const payroll = worked + paid
+                        
+                        return (
+                          <tr key={balance.employeeId} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 print:hover:bg-transparent">
+                            <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-200">
+                              {balance.name}
+                            </td>
+                            <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-400">
+                              {balance.targetHours.toFixed(1)}
+                            </td>
+                            <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-400">
+                              {worked.toFixed(1)}
+                            </td>
+                            <td className="px-6 py-4 text-right text-slate-500 dark:text-slate-500">
+                              {paid > 0 ? paid.toFixed(1) : '-'}
+                            </td>
+                            <td className="px-6 py-4 text-right font-medium text-slate-900 dark:text-slate-200">
+                              {payroll.toFixed(1)}
+                            </td>
+                            <td className={cn(
+                              "px-6 py-4 text-right font-medium",
+                              balance.monthlyDifference > 0 ? "text-emerald-600 dark:text-emerald-400" : 
+                              balance.monthlyDifference < 0 ? "text-red-600 dark:text-red-400" : 
+                              "text-slate-600 dark:text-slate-400"
+                            )}>
+                              {balance.monthlyDifference > 0 ? '+' : ''}{balance.monthlyDifference.toFixed(1)}
+                            </td>
+                            <td className={cn(
+                              "px-6 py-4 text-right font-bold",
+                              balance.accumulatedBalance > 0 ? "text-emerald-600 dark:text-emerald-400" : 
+                              balance.accumulatedBalance < 0 ? "text-red-600 dark:text-red-400" : 
+                              "text-slate-600 dark:text-slate-400"
+                            )}>
+                              {balance.accumulatedBalance > 0 ? '+' : ''}{balance.accumulatedBalance.toFixed(1)}
+                            </td>
+                          </tr>
+                        )
+                    })}
                   </tbody>
                 </table>
               </div>

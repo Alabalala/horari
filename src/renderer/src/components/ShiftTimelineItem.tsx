@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { parseISO, format, addDays, startOfDay, addMinutes } from 'date-fns'
 import { cn } from '@renderer/lib/utils'
 import { Shift } from '../types'
+import { useSettings } from '../hooks/useSettings'
 
 interface ShiftTimelineItemProps {
   shift: Shift
@@ -26,6 +27,7 @@ export default function ShiftTimelineItem({
   className,
   readOnly = false
 }: ShiftTimelineItemProps): React.JSX.Element {
+  const { t } = useSettings()
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null)
   
   // Helper to normalize hours relative to startHour
@@ -176,7 +178,7 @@ export default function ShiftTimelineItem({
           onContextMenu(e, shift)
         }
       }}
-      title={`${shift.type === 'absence' ? (shift.absenceType?.replace('_', ' ') || 'Absence') + ' ' : ''}${formatDisplayTime(currentStartHour)} - ${formatDisplayTime(currentEndHour)}`}
+      title={`${shift.type === 'absence' ? (shift.absenceType ? t(shift.absenceType) : t('absence')) + ' ' : ''}${formatDisplayTime(currentStartHour)} - ${formatDisplayTime(currentEndHour)}`}
     >
       {/* Left Handle */}
       {!readOnly && (

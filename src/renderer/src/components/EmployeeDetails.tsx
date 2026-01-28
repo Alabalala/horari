@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Plus, Save, X, Trash2, AlertTriangle, Copy } from 'lucide-react'
+import { ArrowLeft, Plus, Save, X, Trash2, AlertTriangle, Copy, Banknote, History, ChevronDown, Lock } from 'lucide-react'
 import {
   format,
   startOfDay,
@@ -23,22 +23,8 @@ import { StatsVisibilityMenu } from './StatsVisibilityMenu'
 import ShiftContextMenu from './ShiftContextMenu'
 import ConfirmModal from './ConfirmModal'
 import CopyShiftsModal from './CopyShiftsModal'
-
-type Employee = {
-  id: number
-  name: string
-  role: string
-  department: string
-  status: string
-  defaultHours: number
-}
-
-type Shift = {
-  id: number
-  employeeId: number
-  startTime: string
-  endTime: string
-}
+import { calculateMonthStats, MonthlyClosure } from '../lib/balanceUtils'
+import { BalanceAdjustment, Employee, Shift } from '../types'
 
 export default function EmployeeDetails(): React.JSX.Element {
   const { id } = useParams<{ id: string }>()
@@ -63,6 +49,130 @@ export default function EmployeeDetails(): React.JSX.Element {
       weekStart: new Date(),
       currentHours: 40
   })
+
+  const [monthlyClosures, setMonthlyClosures] = useState<MonthlyClosure[]>([])
+  const [accumulatedBalance, setAccumulatedBalance] = useState<number>(0)
+  const [balanceAdjustments, setBalanceAdjustments] = useState<BalanceAdjustment[]>([])
+  const [showPayOffModal, setShowPayOffModal] = useState(false)
+  const [payOffSnapshot, setPayOffSnapshot] = useState<number>(0)
+  const [payOffInput, setPayOffInput] = useState('')
+  const [payOffDescription, setPayOffDescription] = useState('')
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [isActionsOpen, setIsActionsOpen] = useState(false)
+  const actionsRef = useRef<HTMLDivElement>(null)
+
+  // Close actions menu on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (actionsRef.current && !actionsRef.current.contains(event.target as Node)) {
+        setIsActionsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
+
+  // Check if month is locked helper
+  const isMonthLocked = (date: Date | string): boolean => {
+    const d = typeof date === 'string' ? parseISO(date) : date
+    const mId = format(d, 'yyyy-MM')
+    const closure = monthlyClosures.find(c => c.monthId === mId)
+    return closure?.status === 'LOCKED'
+  }
+
+  const fetchLiveBalance = async () => {
+    if (!id || !employee) return
+
+    try {
+        // 1. Ensure closures are up to date
+        const closures = await window.api.monthlyClosures.getAll() as MonthlyClosure[]
+        setMonthlyClosures(closures)
+
+        // 2. Determine fetch range
+        // Find the earliest relevant date (start of first closed month, or 2020)
+        const sortedClosures = [...closures]
+            .filter(c => c.status === 'LOCKED')
+            .sort((a, b) => a.monthId.localeCompare(b.monthId))
+        
+        let startStr = '2020-01-01T00:00:00.000Z'
+        if (sortedClosures.length > 0) {
+            startStr = startOfMonth(parseISO(sortedClosures[0].monthId + '-01')).toISOString()
+        }
+
+        const endStr = endOfMonth(currentDate).toISOString()
+        
+        // 3. Fetch all shifts
+        // Ensure ID is a number
+        const empId = Number(id)
+        const allShifts = await window.api.shifts.get(empId, startStr, endStr) as Shift[]
+
+        // 4. Fetch overrides for the calculation period (Gap + Current)
+        // We only need overrides from the *latest* closure onwards, 
+        // because previous balances are read from closures.
+        const latestClosure = [...closures]
+            .filter(c => c.status === 'LOCKED' && c.monthId < format(currentDate, 'yyyy-MM'))
+            .sort((a, b) => b.monthId.localeCompare(a.monthId))[0]
+        
+        let calcStart = latestClosure 
+            ? startOfMonth(addDays(parseISO(latestClosure.monthId + '-01'), 32))
+            : parseISO(startStr)
+            
+        const weeksToFetch: string[] = []
+        let iter = startOfWeek(calcStart, { weekStartsOn: 1 })
+        const endIter = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 })
+        
+        // Safety limit to avoid infinite loops
+        let safety = 0
+        while (iter <= endIter && safety < 1000) {
+            weeksToFetch.push(iter.toISOString())
+            iter = addDays(iter, 7)
+            safety++
+        }
+        
+        const overrides: Record<string, Record<number, number>> = {}
+        await Promise.all(weeksToFetch.map(async (weekStr) => {
+            try {
+                const val = await window.api.employees.getWeeklyHours(empId, weekStr)
+                if (typeof val === 'number') {
+                    if (!overrides[weekStr]) overrides[weekStr] = {}
+                    overrides[weekStr][empId] = val
+                }
+            } catch (e) {
+                console.warn('Failed to fetch weekly hours for', weekStr, e)
+            }
+        }))
+
+        // 5. Fetch Adjustments
+        const adjs = await window.api.balanceAdjustments.get(empId) as BalanceAdjustment[]
+        setBalanceAdjustments(adjs)
+
+        // 6. Calculate
+        const stats = calculateMonthStats(
+            currentDate,
+            [employee],
+            allShifts || [],
+            closures,
+            overrides,
+            adjs || []
+        )
+
+        if (stats && stats[employee.id]) {
+            setAccumulatedBalance(stats[employee.id].accumulatedBalance)
+        } else {
+            // Fallback if calculation fails to return entry for employee
+            console.warn("Live balance calculation returned no data for employee, using initial balance")
+            setAccumulatedBalance(employee.initialBalance || 0)
+        }
+    } catch (error) {
+        console.error("Failed to fetch live balance", error)
+        // In case of error, show initial balance instead of 0 (unless it is 0)
+        if (employee) {
+            setAccumulatedBalance(employee.initialBalance || 0)
+        }
+    }
+  }
 
   const { settings, t } = useSettings()
   const dateLocale = settings.language === 'es' ? es : undefined
@@ -90,6 +200,18 @@ export default function EmployeeDetails(): React.JSX.Element {
   })
 
   // Validate form data effect
+  useEffect(() => {
+    const fetchClosures = async () => {
+      try {
+        const closures = await window.api.monthlyClosures.getAll() as MonthlyClosure[]
+        setMonthlyClosures(closures)
+      } catch (error) {
+        console.error('Failed to fetch monthly closures:', error)
+      }
+    }
+    fetchClosures()
+  }, [])
+
   useEffect(() => {
     const validate = async () => {
       if (!isModalOpen) return
@@ -194,14 +316,31 @@ export default function EmployeeDetails(): React.JSX.Element {
     const defaultWeekly = employee.defaultHours || 40
     await Promise.all(weeks.map(async (weekStart) => {
         const weekStr = weekStart.toISOString()
+        const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 })
+        
+        let weeklyHours = defaultWeekly
         const override = await window.api.employees.getWeeklyHours(Number(id), weekStr)
         if (typeof override === 'number') {
-          totalAgreed += override
+          weeklyHours = override
+        }
+        
+        // Strict month calculation (Pro-rate)
+        let daysInCurrentMonth = 0
+        let currentDay = weekStart
+        while (currentDay <= weekEnd) {
+            if (currentDay >= monthStart && currentDay <= monthEnd) {
+                daysInCurrentMonth++
+            }
+            currentDay = addDays(currentDay, 1)
+        }
+        
+        if (daysInCurrentMonth < 7) {
+            totalAgreed += (weeklyHours / 7) * daysInCurrentMonth
         } else {
-          totalAgreed += defaultWeekly
+            totalAgreed += weeklyHours
         }
     }))
-    setMonthlyHours(totalAgreed)
+    setMonthlyHours(Number(totalAgreed.toFixed(1)))
 
     const start = startOfMonth(currentDate).toISOString()
     const end = endOfMonth(currentDate).toISOString()
@@ -260,6 +399,7 @@ export default function EmployeeDetails(): React.JSX.Element {
   useEffect(() => {
     if (employee) {
       fetchStats()
+      fetchLiveBalance()
     }
   }, [employee, currentDate, shifts])
 
@@ -270,6 +410,11 @@ export default function EmployeeDetails(): React.JSX.Element {
   }
 
   const handleDeleteShiftDirectly = async (shift: Shift): Promise<void> => {
+    if (isMonthLocked(shift.startTime)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        return
+    }
+
     setConfirmState({
         isOpen: true,
         title: t('deleteShift'),
@@ -295,6 +440,11 @@ export default function EmployeeDetails(): React.JSX.Element {
 
     const startDateTime = new Date(`${formData.date}T${formData.startTime}`)
     let endDateTime = new Date(`${formData.date}T${formData.endTime}`)
+
+    if (isMonthLocked(startDateTime)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        return
+    }
 
     // Handle cross-day shifts
     if (endDateTime < startDateTime) {
@@ -330,6 +480,84 @@ export default function EmployeeDetails(): React.JSX.Element {
     }
   }
 
+  const handlePayOff = async () => {
+    if (!id) return
+    
+    const amount = parseFloat(payOffInput)
+    if (isNaN(amount) || amount <= 0) return
+
+    // Determine target month for adjustment
+    // 1. Try to use the currently viewed month
+    let targetMonthDate = currentDate
+    
+    // 2. If viewed month is locked, try current real-time month (Today)
+    if (isMonthLocked(targetMonthDate)) {
+        targetMonthDate = new Date()
+        
+        // 3. If Today is also locked, we cannot proceed
+        if (isMonthLocked(targetMonthDate)) {
+             alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+             return
+        }
+    }
+
+    const targetMonthId = format(targetMonthDate, 'yyyy-MM')
+
+    try {
+        // Determine direction based on snapshot sign
+        // If snapshot > 0 (surplus), we subtract amount (adjustment negative)
+        // If snapshot < 0 (debt), we add amount (adjustment positive)
+        const direction = payOffSnapshot >= 0 ? -1 : 1
+        const adjustmentAmount = direction * amount
+
+        await window.api.balanceAdjustments.add({
+            employeeId: Number(id),
+            monthId: targetMonthId,
+            amount: adjustmentAmount,
+            description: payOffDescription || t('balancePayOff') || 'Balance Pay Off',
+            createdAt: new Date().toISOString()
+        })
+        
+        setShowPayOffModal(false)
+        setPayOffDescription('')
+        setPayOffInput('')
+
+        // Show success message to confirm action
+        const formattedTargetMonth = format(targetMonthDate, 'MMMM yyyy', { locale: dateLocale })
+        alert((t('payOffSuccess') || 'Balance adjustment applied to') + ': ' + formattedTargetMonth)
+        
+        // If we applied to a different month than viewed, switch to it to see the effect
+        // Otherwise just refresh
+        if (format(currentDate, 'yyyy-MM') !== targetMonthId) {
+            setCurrentDate(targetMonthDate)
+            setView('month')
+        } else {
+            fetchLiveBalance()
+            fetchStats()
+        }
+    } catch (error) {
+        console.error("Failed to pay off balance", error)
+        alert(t('payOffFailed') || "Failed to save balance adjustment")
+    }
+  }
+
+  const handleDeleteAdjustment = async (adj: BalanceAdjustment) => {
+    if (isMonthLocked(parseISO(adj.monthId + '-01'))) {
+         alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+         return
+    }
+    
+    if (!confirm(t('deleteAdjustmentConfirm') || 'Are you sure you want to delete this adjustment?')) return
+    
+    try {
+        await window.api.balanceAdjustments.delete(adj.id)
+        fetchLiveBalance()
+        fetchStats()
+    } catch (error) {
+        console.error("Failed to delete adjustment", error)
+    }
+  }
+
   const handleCloseModal = () => {
     setIsModalOpen(false)
     setOverlapError(null)
@@ -348,6 +576,10 @@ export default function EmployeeDetails(): React.JSX.Element {
 
   const openEditModal = (shift: Shift, e: React.MouseEvent): void => {
     e.stopPropagation()
+    if (isMonthLocked(shift.startTime)) {
+        alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+        return
+    }
     setEditingShift(shift)
     const start = parseISO(shift.startTime)
     const end = parseISO(shift.endTime)
@@ -468,6 +700,25 @@ export default function EmployeeDetails(): React.JSX.Element {
                   <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
                 </>
               )}
+
+              <div className="text-center group relative">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {t('accumulatedBalance') || 'Total Balance'}
+                </div>
+                <div className="mt-0.5">
+                   <div
+                      className={cn(
+                        'text-sm font-semibold',
+                        accumulatedBalance >= 0
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-red-600 dark:text-red-400'
+                      )}
+                    >
+                      {accumulatedBalance > 0 ? '+' : ''}
+                      {accumulatedBalance.toFixed(1)}h
+                    </div>
+                </div>
+              </div>
             </>
           ) : (
             <>
@@ -481,6 +732,25 @@ export default function EmployeeDetails(): React.JSX.Element {
               </div>
               <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
               
+              <div className="text-center group relative">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {t('accumulatedBalance') || 'Total Balance'}
+                </div>
+                <div className="mt-0.5 flex items-center justify-center gap-2">
+                   <div
+                      className={cn(
+                        'text-sm font-semibold',
+                        accumulatedBalance >= 0
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-red-600 dark:text-red-400'
+                      )}
+                    >
+                      {accumulatedBalance > 0 ? '+' : ''}
+                      {accumulatedBalance.toFixed(1)}h
+                    </div>
+                </div>
+              </div>
+
               {settings.visibleStats.totalWorked && (
                 <>
                   <div className="text-center">
@@ -497,16 +767,32 @@ export default function EmployeeDetails(): React.JSX.Element {
 
               {settings.visibleStats.weeklyTarget && (
                 <>
-                  <div className="text-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 rounded px-2 -mx-2 transition-colors"
-                     onClick={() => setWeeklyHoursModal({
-                         isOpen: true,
-                         weekStart: startOfWeek(currentDate, { weekStartsOn: 1 }),
-                         currentHours: weeklyTarget
-                     })}
-                     title={t('editWeeklyHours') || 'Edit Weekly Hours'}
+                  <div 
+                     className={cn(
+                        "text-center rounded px-2 -mx-2 transition-colors",
+                        isMonthLocked(startOfWeek(currentDate, { weekStartsOn: 1 }))
+                            ? "cursor-not-allowed opacity-70"
+                            : "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800"
+                     )}
+                     onClick={() => {
+                         const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
+                         if (isMonthLocked(weekStart)) {
+                             alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+                             return
+                         }
+                         setWeeklyHoursModal({
+                             isOpen: true,
+                             weekStart,
+                             currentHours: weeklyTarget
+                         })
+                     }}
+                     title={isMonthLocked(startOfWeek(currentDate, { weekStartsOn: 1 })) ? (t('monthClosedMessage') || "Month is closed") : (t('editWeeklyHours') || 'Edit Weekly Hours')}
                   >
                     <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1">
-                      {t('targetWeekly')} <span className="text-[10px] text-blue-500">({t('edit')})</span>
+                      {t('targetWeekly')} 
+                      {!isMonthLocked(startOfWeek(currentDate, { weekStartsOn: 1 })) && (
+                          <span className="text-[10px] text-blue-500">({t('edit')})</span>
+                      )}
                     </div>
                     <div className="mt-0.5">
                       <span className="text-sm font-semibold text-blue-600 dark:text-blue-400 border-b border-dashed border-blue-400">
@@ -575,6 +861,12 @@ export default function EmployeeDetails(): React.JSX.Element {
           </div>
 
           <div className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+            {isMonthLocked(currentDate) && (
+                <div className="flex items-center space-x-1 px-2 py-1 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded text-xs border border-red-100 dark:border-red-900/30 mr-2">
+                    <Lock className="h-3 w-3" />
+                    <span className="font-medium">{t('locked') || 'Locked'}</span>
+                </div>
+            )}
             <StatsVisibilityMenu />
             
             <button
@@ -585,40 +877,97 @@ export default function EmployeeDetails(): React.JSX.Element {
               <Copy className="h-4 w-4" />
             </button>
 
-            <button
-              onClick={() => setCurrentDate((d) => {
-                  if (view === 'month') return addMonths(d, -1)
-                  return addDays(d, view === 'day' ? -1 : -7)
-              })}
-              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
-            >
-              {'<'}
-            </button>
-            <span className="text-sm font-medium min-w-[120px] text-center">
-              {view === 'day'
-                ? format(currentDate, 'MMM d, yyyy', { locale: dateLocale })
-                : view === 'week' 
-                  ? `${t('weekOf')} ${format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'MMM d', { locale: dateLocale })}`
-                  : format(currentDate, 'MMMM yyyy', { locale: dateLocale })}
-            </span>
-            <button
-              onClick={() => setCurrentDate((d) => {
-                  if (view === 'month') return addMonths(d, 1)
-                  return addDays(d, view === 'day' ? 1 : 7)
-              })}
-              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
-            >
-              {'>'}
-            </button>
+            <div className={cn(
+                "flex items-center gap-1 px-1 py-0.5 rounded transition-colors",
+                isMonthLocked(currentDate) && "bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/30 text-red-700 dark:text-red-400"
+            )}>
+                <button
+                onClick={() => setCurrentDate((d) => {
+                    if (view === 'month') return addMonths(d, -1)
+                    return addDays(d, view === 'day' ? -1 : -7)
+                })}
+                className={cn(
+                    "p-1 rounded",
+                    isMonthLocked(currentDate) 
+                        ? "hover:bg-red-100 dark:hover:bg-red-900/30" 
+                        : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                )}
+                >
+                {'<'}
+                </button>
+                <span className="text-sm font-medium min-w-[120px] text-center">
+                {view === 'day'
+                    ? format(currentDate, 'MMM d, yyyy', { locale: dateLocale })
+                    : view === 'week' 
+                    ? `${t('weekOf')} ${format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'MMM d', { locale: dateLocale })}`
+                    : format(currentDate, 'MMMM yyyy', { locale: dateLocale })}
+                </span>
+                <button
+                onClick={() => setCurrentDate((d) => {
+                    if (view === 'month') return addMonths(d, 1)
+                    return addDays(d, view === 'day' ? 1 : 7)
+                })}
+                className={cn(
+                    "p-1 rounded",
+                    isMonthLocked(currentDate) 
+                        ? "hover:bg-red-100 dark:hover:bg-red-900/30" 
+                        : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                )}
+                >
+                {'>'}
+                </button>
+            </div>
           </div>
         </div>
 
-        <button
-          onClick={openAddModal}
-          className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="h-4 w-4" /> {t('addShift')}
-        </button>
+        <div className="flex items-center gap-2">
+            <div className="relative" ref={actionsRef}>
+              <button
+                onClick={() => setIsActionsOpen(!isActionsOpen)}
+                className="flex items-center gap-2 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                {t('actions') || 'Actions'}
+                <ChevronDown className="h-4 w-4 text-slate-500" />
+              </button>
+
+              {isActionsOpen && (
+                <div className="absolute right-0 top-full mt-2 w-48 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg z-50 p-1">
+                  <button
+                    onClick={() => {
+                      setIsActionsOpen(false)
+                      // Allow opening pay off modal even if month is locked
+                      // The handlePayOff function will handle redirecting the adjustment to the current month
+                      setPayOffSnapshot(accumulatedBalance)
+                      setPayOffInput(Math.abs(accumulatedBalance).toString())
+                      setShowPayOffModal(true)
+                    }}
+                    disabled={Math.abs(accumulatedBalance) < 0.01}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Banknote className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>{t('payOffBalance') || 'Pay Off Balance'}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsActionsOpen(false)
+                      setShowHistoryModal(true)
+                    }}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-left"
+                  >
+                    <History className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <span>{t('balanceHistory') || 'Balance History'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={openAddModal}
+              className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" /> {t('addShift')}
+            </button>
+        </div>
       </div>
 
       <div className="rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 overflow-hidden">
@@ -630,9 +979,18 @@ export default function EmployeeDetails(): React.JSX.Element {
               return (
                 <div
                   key={day.toISOString()}
-                  className={cn('min-h-[400px]', isToday && 'bg-blue-50/50 dark:bg-blue-500/5')}
+                  className={cn(
+                      'min-h-[400px] relative', 
+                      isToday && 'bg-blue-50/50 dark:bg-blue-500/5',
+                      isMonthLocked(day) && 'bg-slate-50/80 dark:bg-slate-900/40'
+                  )}
                 >
-                  <div className="border-b border-slate-200 dark:border-slate-800 p-3 text-center">
+                  <div className="border-b border-slate-200 dark:border-slate-800 p-3 text-center relative">
+                    {isMonthLocked(day) && (
+                        <div className="absolute top-1 right-1">
+                            <Lock className="h-3 w-3 text-slate-300 dark:text-slate-600" />
+                        </div>
+                    )}
                     <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       {format(day, 'EEE', { locale: dateLocale })}
                     </div>
@@ -702,9 +1060,14 @@ export default function EmployeeDetails(): React.JSX.Element {
                            'min-h-[100px] p-2 transition-colors relative group border-r border-b border-slate-200 dark:border-slate-800',
                            (i + 1) % 7 === 0 && 'border-r-0',
                            isToday && 'bg-blue-50/50 dark:bg-blue-500/5',
-                           !isCurrentMonth && 'bg-slate-50/50 dark:bg-slate-900/20 opacity-60'
+                           !isCurrentMonth && 'bg-slate-50/50 dark:bg-slate-900/20 opacity-60',
+                           isMonthLocked(day) && 'bg-slate-50/80 dark:bg-slate-900/40'
                        )}
                        onClick={() => {
+                            if (isMonthLocked(day)) {
+                                alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+                                return
+                            }
                             setEditingShift(null)
                             setFormData({
                               date: format(day, 'yyyy-MM-dd'),
@@ -714,6 +1077,11 @@ export default function EmployeeDetails(): React.JSX.Element {
                             setIsModalOpen(true)
                        }}
                      >
+                       {isMonthLocked(day) && (
+                           <div className="absolute top-1 right-1">
+                               <Lock className="h-3 w-3 text-slate-300 dark:text-slate-600" />
+                           </div>
+                       )}
                        <div className="flex justify-between items-start mb-1">
                            <span className={cn("text-xs font-medium", isToday ? "text-blue-600" : "text-slate-500")}>
                                {format(day, 'd')}
@@ -736,6 +1104,12 @@ export default function EmployeeDetails(): React.JSX.Element {
              </div>
         ) : (
           <div className="p-4">
+            {isMonthLocked(currentDate) && (
+                <div className="mb-4 flex items-center gap-2 rounded-md bg-slate-100 dark:bg-slate-900/50 p-3 text-sm text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800">
+                    <Lock className="h-4 w-4" />
+                    <span>{t('monthClosedMessage') || "This month is closed. Unlock it to make changes."}</span>
+                </div>
+            )}
             <div className="space-y-2">
               {shifts
                 .filter((s) => isSameDay(parseISO(s.startTime), currentDate))
@@ -763,6 +1137,10 @@ export default function EmployeeDetails(): React.JSX.Element {
                     <button
                       onClick={async (e) => {
                         e.stopPropagation()
+                        if (isMonthLocked(shift.startTime)) {
+                             alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+                             return
+                        }
                         if (confirm(t('deleteShiftConfirm'))) {
                           await window.api.shifts.delete(shift.id)
                           fetchShifts()
@@ -928,6 +1306,7 @@ export default function EmployeeDetails(): React.JSX.Element {
                         setWeeklyTarget(hours) // Optimistic update
                         setWeeklyHoursModal(prev => ({ ...prev, isOpen: false }))
                         fetchStats() // Refresh to be sure
+                        fetchLiveBalance()
                     } catch (err) {
                         console.error("Failed to save", err)
                     }
@@ -952,6 +1331,137 @@ export default function EmployeeDetails(): React.JSX.Element {
             </form>
         </div>
     </div>
+  )}
+
+  {/* Pay Off Modal */}
+  {showPayOffModal && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="w-full max-w-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    {t('payOffBalance') || 'Pay Off Balance'}
+                </h2>
+                <button onClick={() => setShowPayOffModal(false)} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+                    <X className="h-5 w-5" />
+                </button>
+            </div>
+            
+            <div className="space-y-4">
+                <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 p-4">
+                    <div className="flex justify-between items-center mb-1">
+                        <span className="text-sm text-slate-600 dark:text-slate-400">{t('currentBalance') || 'Current Balance'}:</span>
+                        <span className={cn("text-lg font-bold", payOffSnapshot >= 0 ? "text-emerald-600" : "text-red-600")}>
+                            {payOffSnapshot > 0 ? '+' : ''}{payOffSnapshot.toFixed(1)}h
+                        </span>
+                    </div>
+                    
+                    <div className="mt-4">
+                       <label className="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">
+                         {t('amount') || 'Amount'}
+                       </label>
+                       <input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          value={payOffInput}
+                          onChange={(e) => setPayOffInput(e.target.value)}
+                          className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                       />
+                    </div>
+
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                        {t('payOffExplanation') || 'This action will create an adjustment to set the accumulated balance to zero.'}
+                        <br/>
+                        <span className="text-blue-600 dark:text-blue-400 mt-1 block">
+                            {t('adjustmentAppliedTo') || 'Adjustment will be applied to'}: {format(new Date(), 'MMMM yyyy')}
+                        </span>
+                    </p>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        {t('description') || 'Description'}
+                    </label>
+                    <input
+                        type="text"
+                        value={payOffDescription}
+                        onChange={(e) => setPayOffDescription(e.target.value)}
+                        placeholder={t('payOffPlaceholder') || 'e.g. Paid out overtime'}
+                        className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                    />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                    <button
+                        onClick={() => setShowPayOffModal(false)}
+                        className="rounded-md border border-slate-200 dark:border-slate-800 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
+                    >
+                        {t('cancel')}
+                    </button>
+                    <button
+                        onClick={handlePayOff}
+                        className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 flex items-center gap-2"
+                    >
+                        <Banknote className="h-4 w-4" />
+                        {t('confirmPayOff') || 'Pay Off'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+  )}
+
+  {/* History Modal */}
+  {showHistoryModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    {t('balanceHistory') || 'Balance History'}
+                </h2>
+                <button onClick={() => setShowHistoryModal(false)} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+                    <X className="h-5 w-5" />
+                </button>
+            </div>
+            
+            <div className="max-h-[400px] overflow-y-auto space-y-2 pr-2">
+                {balanceAdjustments.length === 0 ? (
+                    <div className="text-center text-slate-500 dark:text-slate-400 py-8">
+                        {t('noAdjustments') || 'No balance adjustments found'}
+                    </div>
+                ) : (
+                    balanceAdjustments
+                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                        .map(adj => (
+                        <div key={adj.id} className="flex items-center justify-between rounded border border-slate-200 dark:border-slate-800 p-3 bg-slate-50 dark:bg-slate-900/50">
+                            <div>
+                                <div className="text-sm font-medium text-slate-900 dark:text-white">
+                                    {adj.description}
+                                </div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                    {format(parseISO(adj.createdAt), 'PP p', { locale: dateLocale })}
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <span className={cn("text-sm font-bold", adj.amount >= 0 ? "text-emerald-600" : "text-red-600")}>
+                                    {adj.amount > 0 ? '+' : ''}{adj.amount.toFixed(1)}h
+                                </span>
+                                {!isMonthLocked(parseISO(adj.monthId + '-01')) && (
+                                    <button
+                                        onClick={() => handleDeleteAdjustment(adj)}
+                                        className="text-slate-400 hover:text-red-500 transition-colors"
+                                        title={t('delete') || 'Delete'}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+      </div>
   )}
 
   {/* Context Menu */}

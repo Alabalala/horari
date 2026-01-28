@@ -52,6 +52,15 @@ export type MonthlyHours = {
   hours: number
 }
 
+export type BalanceAdjustment = {
+  id?: number
+  employeeId: number
+  monthId: string // YYYY-MM
+  amount: number
+  description: string
+  createdAt: string
+}
+
 // Initialize tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS employees (
@@ -98,6 +107,16 @@ db.exec(`
     status TEXT NOT NULL,
     closedAt TEXT NOT NULL,
     balances TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS balance_adjustments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employeeId INTEGER NOT NULL,
+    monthId TEXT NOT NULL,
+    amount REAL NOT NULL,
+    description TEXT,
+    createdAt TEXT NOT NULL,
+    FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE
   );
 `)
 
@@ -336,4 +355,28 @@ export function setMonthlyClosure(closure: MonthlyClosure): Database.RunResult {
 export function deleteMonthlyClosure(monthId: string): Database.RunResult {
   const stmt = db.prepare('DELETE FROM monthly_closures WHERE monthId = ?')
   return stmt.run(monthId)
+}
+
+// Balance Adjustments operations
+export function getBalanceAdjustments(employeeId?: number): BalanceAdjustment[] {
+  let query = 'SELECT * FROM balance_adjustments'
+  const params: number[] = []
+  
+  if (employeeId) {
+    query += ' WHERE employeeId = ?'
+    params.push(employeeId)
+  }
+  
+  query += ' ORDER BY createdAt DESC'
+  return db.prepare(query).all(...params) as BalanceAdjustment[]
+}
+
+export function addBalanceAdjustment(adjustment: Omit<BalanceAdjustment, 'id'>): Database.RunResult {
+  const stmt = db.prepare('INSERT INTO balance_adjustments (employeeId, monthId, amount, description, createdAt) VALUES (?, ?, ?, ?, ?)')
+  return stmt.run(adjustment.employeeId, adjustment.monthId, adjustment.amount, adjustment.description, adjustment.createdAt)
+}
+
+export function deleteBalanceAdjustment(id: number): Database.RunResult {
+  const stmt = db.prepare('DELETE FROM balance_adjustments WHERE id = ?')
+  return stmt.run(id)
 }

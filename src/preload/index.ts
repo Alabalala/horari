@@ -30,6 +30,11 @@ const api = {
     set: (closure) => ipcRenderer.invoke('set-monthly-closure', closure),
     delete: (monthId) => ipcRenderer.invoke('delete-monthly-closure', monthId)
   },
+  balanceAdjustments: {
+    get: (employeeId) => ipcRenderer.invoke('get-balance-adjustments', employeeId),
+    add: (adjustment) => ipcRenderer.invoke('add-balance-adjustment', adjustment),
+    delete: (id) => ipcRenderer.invoke('delete-balance-adjustment', id)
+  },
   settings: {
     getAll: () => ipcRenderer.invoke('get-settings'),
     update: (key, value) => ipcRenderer.invoke('update-setting', { key, value })

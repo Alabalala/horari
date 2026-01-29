@@ -39,10 +39,24 @@ declare global {
       shifts: {
         get: (employeeId: number, startDate?: string, endDate?: string) => Promise<unknown[]>
         getAll: (startDate?: string, endDate?: string) => Promise<unknown[]>
-        add: (shift: { employeeId: number; startTime: string; endTime: string }) => Promise<void>
+        add: (shift: { 
+          employeeId: number
+          startTime: string
+          endTime: string
+          type?: 'work' | 'absence'
+          absenceType?: string
+          isPaid?: boolean
+        }) => Promise<void>
         update: (
           id: number,
-          shift: { employeeId: number; startTime: string; endTime: string }
+          shift: { 
+            employeeId: number
+            startTime: string
+            endTime: string
+            type?: 'work' | 'absence'
+            absenceType?: string
+            isPaid?: boolean
+          }
         ) => Promise<void>
         delete: (id: number) => Promise<void>
       }

@@ -1,0 +1,36 @@
+[
+  {
+    "version": "1.0.5",
+    "date": "2026-01-29",
+    "notes": {
+      "en": [
+        "Added 'What's Changed' section to Settings to view update history.",
+        "Unified Shift and Employee Details views for consistent behavior.",
+        "Enhanced absence management with new types (Bank Holiday, Unpaid, etc.).",
+        "Improved delete confirmation flows across the application.",
+        "Fixed validation issues when editing shifts."
+      ],
+      "es": [
+        "Añadida la sección 'Novedades' en Configuración para ver el historial de cambios.",
+        "Unificadas las vistas de Turnos y Detalles del Empleado para un comportamiento consistente.",
+        "Mejorada la gestión de ausencias con nuevos tipos (Festivo, No remunerado, etc.).",
+        "Mejorados los flujos de confirmación de eliminación en toda la aplicación.",
+        "Corregidos problemas de validación al editar turnos."
+      ]
+    }
+  },
+  {
+    "version": "1.0.4",
+    "date": "2024-05-21",
+    "notes": {
+      "en": [
+        "Initial release of the improved shift management system.",
+        "Added comprehensive employee tracking."
+      ],
+      "es": [
+        "Lanzamiento inicial del sistema mejorado de gestión de turnos.",
+        "Añadido seguimiento integral de empleados."
+      ]
+    }
+  }
+]

@@ -46,7 +46,8 @@ const api = {
   },
   utils: {
     saveExport: (data, filename) => ipcRenderer.invoke('save-export', { data, filename }),
-    getAppVersion: () => ipcRenderer.invoke('get-app-version')
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+    getReleaseNotes: () => ipcRenderer.invoke('get-release-notes')
   }
 }
 

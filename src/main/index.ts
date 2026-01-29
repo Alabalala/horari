@@ -128,6 +128,41 @@ app.whenReady().then(() => {
     autoUpdater.quitAndInstall(false, true)
   })
 
+  // Release Notes
+  ipcMain.handle('get-release-notes', async () => {
+    try {
+      let releaseNotesPath = ''
+      
+      if (is.dev) {
+        releaseNotesPath = join(__dirname, '../../resources/release-notes.json')
+      } else {
+        const possiblePaths = [
+          join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'release-notes.json'),
+          join(process.resourcesPath, 'resources', 'release-notes.json'),
+          join(app.getAppPath(), 'resources', 'release-notes.json')
+        ]
+        
+        for (const p of possiblePaths) {
+           try {
+             await fs.access(p)
+             releaseNotesPath = p
+             break
+           } catch {
+             continue
+           }
+        }
+      }
+
+      if (!releaseNotesPath) return null
+
+      const content = await fs.readFile(releaseNotesPath, 'utf-8')
+      return JSON.parse(content)
+    } catch (error) {
+      console.error('Failed to read release notes:', error)
+      return null
+    }
+  })
+
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
   // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils

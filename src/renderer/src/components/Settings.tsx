@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { useSettings } from '../hooks/useSettings'
-import { Upload, X, RefreshCw, Download, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
+import { Upload, X, RefreshCw, Download, Loader2, CheckCircle, AlertCircle, Sparkles } from 'lucide-react'
+import WhatsNewModal from './WhatsNewModal'
 
 export default function Settings(): React.JSX.Element {
   const { settings, updateSetting, t } = useSettings()
@@ -11,9 +12,14 @@ export default function Settings(): React.JSX.Element {
   const [checkError, setCheckError] = useState<string | null>(null)
   const [downloadProgress, setDownloadProgress] = useState<number>(0)
   const [appVersion, setAppVersion] = useState<string>('')
+  const [showWhatsNew, setShowWhatsNew] = useState(false)
+  const [releaseNotes, setReleaseNotes] = useState<any[]>([])
 
   useEffect(() => {
     window.api.utils.getAppVersion().then(setAppVersion)
+    window.api.utils.getReleaseNotes().then((notes) => {
+        if (notes) setReleaseNotes(notes)
+    })
 
     const removeListener = window.electron.ipcRenderer.on('updater-event', (_, data: any) => {
       if (data.type === 'checking') setUpdateStatus('checking')
@@ -325,8 +331,26 @@ export default function Settings(): React.JSX.Element {
             </div>
           </div>
           {checkError && <p className="mt-2 text-xs text-red-500">{checkError}</p>}
+
+          {releaseNotes.length > 0 && (
+            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                    onClick={() => setShowWhatsNew(true)}
+                    className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium transition-colors"
+                >
+                    <Sparkles className="w-4 h-4" />
+                    <span>{settings.language === 'es' ? 'Ver novedades y cambios' : "What's changed in this version"}</span>
+                </button>
+            </div>
+          )}
         </div>
       </div>
+
+      <WhatsNewModal 
+        isOpen={showWhatsNew} 
+        onClose={() => setShowWhatsNew(false)} 
+        releaseNotes={releaseNotes} 
+      />
     </div>
   )
 }

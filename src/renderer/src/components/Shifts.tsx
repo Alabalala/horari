@@ -759,9 +759,9 @@ export default function Shifts(): React.JSX.Element {
             }
 
             if (editingShift) {
-                await window.api.shifts.update(editingShift.id, shiftData)
+                await window.api.shifts.update(editingShift.id, shiftData as any)
             } else {
-                await window.api.shifts.add(shiftData)
+                await window.api.shifts.add(shiftData as any)
             }
         }
 

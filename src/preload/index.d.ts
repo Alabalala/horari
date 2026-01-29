@@ -95,6 +95,7 @@ declare global {
       utils: {
         saveExport: (data: string, filename: string) => Promise<{ success: boolean; filePath?: string; canceled?: boolean }>
         getAppVersion: () => Promise<string>
+        getReleaseNotes: () => Promise<Array<{ version: string; date: string; notes: Record<string, string[]> }> | null>
       }
     }
   }

@@ -58,6 +58,7 @@ export default function EmployeeDetails(): React.JSX.Element {
   const [payOffInput, setPayOffInput] = useState('')
   const [payOffDescription, setPayOffDescription] = useState('')
   const [showHistoryModal, setShowHistoryModal] = useState(false)
+
   const [isActionsOpen, setIsActionsOpen] = useState(false)
   const actionsRef = useRef<HTMLDivElement>(null)
 
@@ -481,9 +482,11 @@ export default function EmployeeDetails(): React.JSX.Element {
   }
 
   const handlePayOff = async () => {
-    if (!id) return
+    if (!id || !employee) return
     
-    const amount = parseFloat(payOffInput)
+    // Replace comma with dot for flexibility
+    const normalizedInput = payOffInput.replace(',', '.')
+    const amount = parseFloat(normalizedInput)
     if (isNaN(amount) || amount <= 0) return
 
     // Determine target month for adjustment
@@ -510,19 +513,23 @@ export default function EmployeeDetails(): React.JSX.Element {
         const direction = payOffSnapshot >= 0 ? -1 : 1
         const adjustmentAmount = direction * amount
 
+        // Calculate balance after
+        const balanceAfter = payOffSnapshot + adjustmentAmount
+
         await window.api.balanceAdjustments.add({
             employeeId: Number(id),
             monthId: targetMonthId,
             amount: adjustmentAmount,
             description: payOffDescription || t('balancePayOff') || 'Balance Pay Off',
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            balanceAfter: balanceAfter
         })
         
         setShowPayOffModal(false)
         setPayOffDescription('')
         setPayOffInput('')
 
-        // Show success message to confirm action
+        // Show success message
         const formattedTargetMonth = format(targetMonthDate, 'MMMM yyyy', { locale: dateLocale })
         alert((t('payOffSuccess') || 'Balance adjustment applied to') + ': ' + formattedTargetMonth)
         
@@ -1360,9 +1367,8 @@ export default function EmployeeDetails(): React.JSX.Element {
                          {t('amount') || 'Amount'}
                        </label>
                        <input
-                          type="number"
-                          step="0.1"
-                          min="0.1"
+                          type="text"
+                          inputMode="decimal"
                           value={payOffInput}
                           onChange={(e) => setPayOffInput(e.target.value)}
                           className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"

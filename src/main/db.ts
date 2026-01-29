@@ -59,6 +59,7 @@ export type BalanceAdjustment = {
   amount: number
   description: string
   createdAt: string
+  balanceAfter?: number
 }
 
 // Initialize tables
@@ -153,6 +154,12 @@ try {
 
 try {
   db.exec('ALTER TABLE shifts ADD COLUMN isPaid INTEGER DEFAULT 1')
+} catch (error) {
+  // Column likely exists
+}
+
+try {
+  db.exec('ALTER TABLE balance_adjustments ADD COLUMN balanceAfter REAL')
 } catch (error) {
   // Column likely exists
 }
@@ -372,8 +379,8 @@ export function getBalanceAdjustments(employeeId?: number): BalanceAdjustment[] 
 }
 
 export function addBalanceAdjustment(adjustment: Omit<BalanceAdjustment, 'id'>): Database.RunResult {
-  const stmt = db.prepare('INSERT INTO balance_adjustments (employeeId, monthId, amount, description, createdAt) VALUES (?, ?, ?, ?, ?)')
-  return stmt.run(adjustment.employeeId, adjustment.monthId, adjustment.amount, adjustment.description, adjustment.createdAt)
+  const stmt = db.prepare('INSERT INTO balance_adjustments (employeeId, monthId, amount, description, createdAt, balanceAfter) VALUES (?, ?, ?, ?, ?, ?)')
+  return stmt.run(adjustment.employeeId, adjustment.monthId, adjustment.amount, adjustment.description, adjustment.createdAt, adjustment.balanceAfter || 0)
 }
 
 export function deleteBalanceAdjustment(id: number): Database.RunResult {

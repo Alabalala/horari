@@ -170,6 +170,10 @@ const translations = {
     monthClosedMessage: 'This month is closed. Unlock it to make changes.',
     payOffBalance: 'Pay Off Balance',
     balancePayOff: 'Balance Pay Off',
+    balanceRemaining: 'Balance Remaining',
+    balanceBefore: 'Balance Before',
+    balanceAfter: 'Balance After',
+    payOffHistory: 'History of manual balance adjustments and payoffs.',
     currentBalance: 'Current Balance',
     payOffExplanation: 'This action will create an adjustment to set the accumulated balance to zero.',
     description: 'Description',
@@ -214,7 +218,8 @@ const translations = {
     cannotCloseMonth: 'Cannot Close Month',
     previousMonthNotClosed: 'Previous month must be closed first.',
     closeMonth: 'Close Month',
-    closeMonthConfirm: 'Are you sure you want to close this month? This will lock the balances.'
+    closeMonthConfirm: 'Are you sure you want to close this month? This will lock the balances.',
+    monthClosed: 'Month Closed'
   },
   es: {
     dashboard: 'Panel de control',
@@ -376,6 +381,10 @@ const translations = {
     netBalance: 'Balance neto',
     payOffBalance: 'Liquidar saldo',
     balancePayOff: 'Liquidación de saldo',
+    balanceRemaining: 'Saldo restante',
+    balanceBefore: 'Saldo anterior',
+    balanceAfter: 'Saldo posterior',
+    payOffHistory: 'Historial de ajustes manuales de saldo y liquidaciones.',
     currentBalance: 'Saldo actual',
     payOffExplanation: 'Esta acción creará un ajuste para poner el saldo acumulado a cero.',
     description: 'Descripción',
@@ -423,7 +432,15 @@ const translations = {
     exportPDF: 'Exportar PDF',
     page: 'Página',
     exportFailedConsole: 'Error al exportar. Por favor revise la consola para más detalles.',
-    exportWeeklySchedule: 'Exportar horario semanal'
+    exportWeeklySchedule: 'Exportar horario semanal',
+    unlockMonth: 'Desbloquear mes',
+    unlockMonthWarningSubsequent: 'Advertencia: Los meses siguientes están cerrados. Desbloquear este mes puede afectar sus saldos.',
+    unlockMonthConfirm: '¿Seguro que quieres desbloquear este mes?',
+    cannotCloseMonth: 'No se puede cerrar el mes',
+    previousMonthNotClosed: 'El mes anterior debe cerrarse primero.',
+    closeMonth: 'Cerrar mes',
+    closeMonthConfirm: '¿Seguro que quieres cerrar este mes? Esto bloqueará los saldos.',
+    monthClosed: 'Mes cerrado'
   }
 }
 
@@ -493,7 +510,7 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
       // Optimistic update
       setSettings((prev) => ({ ...prev, [key]: value }))
       
-      const valueToStore = typeof value === 'object' ? JSON.stringify(value) : value
+      const valueToStore = typeof value === 'object' ? JSON.stringify(value) : String(value)
       await window.api.settings.update(key, valueToStore)
     } catch (error) {
       console.error(`Failed to update setting ${key}:`, error)

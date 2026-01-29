@@ -65,6 +65,7 @@ declare global {
           amount: number
           description: string
           createdAt: string
+          balanceAfter?: number
         }) => Promise<void>
         delete: (id: number) => Promise<void>
       }

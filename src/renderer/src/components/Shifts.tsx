@@ -129,7 +129,16 @@ export default function Shifts(): React.JSX.Element {
   const [shifts, setShifts] = useState<Shift[]>([])
   const [monthlyClosures, setMonthlyClosures] = useState<MonthlyClosure[]>([])
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [view, setView] = useState<'week' | 'day' | 'month'>('week')
+  const [view, setView] = useState<'week' | 'day' | 'month'>(() => {
+    const saved = localStorage.getItem('shiftsView')
+    return (saved === 'week' || saved === 'day' || saved === 'month') ? saved : 'week'
+  })
+
+  // Persist view state
+  useEffect(() => {
+    localStorage.setItem('shiftsView', view)
+  }, [view])
+
   const [search, setSearch] = useState('')
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [loading, setLoading] = useState(true)

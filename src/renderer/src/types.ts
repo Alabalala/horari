@@ -34,4 +34,5 @@ export type BalanceAdjustment = {
   amount: number
   description: string
   createdAt: string
+  balanceAfter?: number
 }

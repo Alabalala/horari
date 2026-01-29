@@ -18,6 +18,7 @@ import { Copy, AlertTriangle, X, Check, Plus, Trash2, Users, User } from 'lucide
 import { useSettings } from '../hooks/useSettings'
 import { cn } from '@renderer/lib/utils'
 import { Shift, Employee } from '../types'
+import { MonthlyClosure } from '@renderer/lib/balanceUtils'
 
 type CopyShiftsModalProps = {
   isOpen: boolean
@@ -62,7 +63,7 @@ export default function CopyShiftsModal({
   // Load employees and closures
   useEffect(() => {
     window.api.employees.getAll().then((data) => setEmployees(data as Employee[]))
-    window.api.monthlyClosures.getAll().then((data) => setMonthlyClosures(data))
+    window.api.monthlyClosures.getAll().then((data) => setMonthlyClosures(data as MonthlyClosure[]))
   }, [])
 
   // Reset state when opening

@@ -1,5 +1,21 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { DragDropContext, Draggable, Droppable, DropResult } from '@hello-pangea/dnd'
+import { cn } from '@renderer/lib/utils'
+import { Employee, Shift } from '@renderer/types'
+import { addDays, addHours, endOfDay, format, isSameDay, parseISO, startOfDay } from 'date-fns'
+import { es } from 'date-fns/locale'
+import {
+  AlertTriangle,
+  GripVertical,
+  Save,
+  Trash2,
+  X
+} from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useSettings } from '../hooks/useSettings'
+import ConfirmModal from './ConfirmModal'
+import ShiftContextMenu from './ShiftContextMenu'
+import ShiftTimelineItem from './ShiftTimelineItem'
 import {
   Table,
   TableBody,
@@ -8,28 +24,6 @@ import {
   TableHeader,
   TableRow
 } from './ui/table'
-import { cn } from '@renderer/lib/utils'
-import { format, startOfDay, endOfDay, parseISO, isSameDay, addDays, addHours } from 'date-fns'
-import { es } from 'date-fns/locale'
-import { useSettings } from '../hooks/useSettings'
-import ShiftTimelineItem from './ShiftTimelineItem'
-import ShiftContextMenu from './ShiftContextMenu'
-import ConfirmModal from './ConfirmModal'
-import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
-import {
-  X,
-  Save,
-  Trash2,
-  Users,
-  Calendar,
-  Clock,
-  Briefcase,
-  AlertCircle,
-  TrendingUp,
-  AlertTriangle,
-  GripVertical
-} from 'lucide-react'
-import { Employee, Shift } from '@renderer/types'
 
 function DashboardEmployeeRow({ 
   emp, 

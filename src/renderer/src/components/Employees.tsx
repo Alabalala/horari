@@ -253,7 +253,7 @@ export default function Employees(): React.JSX.Element {
           <option value="all" className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">{t('allStatuses') || 'All Statuses'}</option>
           {statuses.map((s) => (
             <option key={s} value={s} className="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200">
-              {s}
+              {s === 'Active' ? t('statusActive') : s === 'Inactive' ? t('statusInactive') : s === 'On Leave' ? t('statusOnLeave') : s}
             </option>
           ))}
         </select>

@@ -160,6 +160,7 @@ export default function EmployeeDetails(): React.JSX.Element {
         )
 
         if (stats && stats[employee.id]) {
+            // console.log('Live balance calculated:', stats[employee.id].accumulatedBalance)
             setAccumulatedBalance(stats[employee.id].accumulatedBalance)
         } else {
             // Fallback if calculation fails to return entry for employee
@@ -468,7 +469,12 @@ export default function EmployeeDetails(): React.JSX.Element {
             const endTimeStr = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`
 
             const baseDate = parseISO(formData.date)
-            const daysToCreate = editingShift ? 1 : formData.days
+            const daysToCreate = editingShift ? 1 : (Number(formData.days) || 1)
+
+            if (daysToCreate < 1 || daysToCreate > 30) {
+                alert(t('daysError') || "Number of days must be between 1 and 30")
+                return
+            }
 
             const promises: Promise<any>[] = []
 
@@ -553,6 +559,9 @@ export default function EmployeeDetails(): React.JSX.Element {
     // 1. Try to use the currently viewed month
     let targetMonthDate = currentDate
     
+    // Safety check for snapshot
+    const currentSnapshot = (typeof payOffSnapshot === 'number' && !isNaN(payOffSnapshot)) ? payOffSnapshot : 0
+    
     // 2. If viewed month is locked, try current real-time month (Today)
     if (isMonthLocked(targetMonthDate)) {
         targetMonthDate = new Date()
@@ -570,11 +579,11 @@ export default function EmployeeDetails(): React.JSX.Element {
         // Determine direction based on snapshot sign
         // If snapshot > 0 (surplus), we subtract amount (adjustment negative)
         // If snapshot < 0 (debt), we add amount (adjustment positive)
-        const direction = payOffSnapshot >= 0 ? -1 : 1
+        const direction = currentSnapshot >= 0 ? -1 : 1
         const adjustmentAmount = direction * amount
 
         // Calculate balance after
-        const balanceAfter = payOffSnapshot + adjustmentAmount
+        const balanceAfter = currentSnapshot + adjustmentAmount
 
         await window.api.balanceAdjustments.add({
             employeeId: Number(id),
@@ -861,7 +870,7 @@ export default function EmployeeDetails(): React.JSX.Element {
                              currentHours: weeklyTarget
                          })
                      }}
-                     title={isMonthLocked(startOfWeek(currentDate, { weekStartsOn: 1 })) ? (t('monthClosedMessage') || "Month is closed") : (t('editWeeklyHours') || 'Edit Weekly Hours')}
+                     title={isMonthLocked(startOfWeek(currentDate, { weekStartsOn: 1 })) ? (t('monthClosedMessage') || "Month is closed") : (t('clickToTargetEdit') || 'Click to edit target')}
                   >
                     <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1">
                       {t('targetWeekly')} 
@@ -1016,7 +1025,7 @@ export default function EmployeeDetails(): React.JSX.Element {
                       setPayOffInput(Math.abs(accumulatedBalance).toString())
                       setShowPayOffModal(true)
                     }}
-                    disabled={Math.abs(accumulatedBalance) < 0.01}
+                    disabled={isNaN(accumulatedBalance) || Math.abs(accumulatedBalance) < 0.01}
                     className="w-full flex items-center gap-2 px-2 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-left disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Banknote className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -1328,8 +1337,8 @@ export default function EmployeeDetails(): React.JSX.Element {
                             className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
                         >
                             <option value="holiday">{t('holiday') || 'Holiday'}</option>
-                            <option value="sick_leave">{t('sickLeave') || 'Sick Leave'}</option>
-                            <option value="bank_holiday">{t('bankHoliday') || 'Bank Holiday'}</option>
+                            <option value="sick_leave">{t('sick_leave') || 'Sick Leave'}</option>
+                            <option value="bank_holiday">{t('bank_holiday') || 'Bank Holiday'}</option>
                             <option value="unpaid">{t('unpaid') || 'Unpaid'}</option>
                             <option value="other">{t('other') || 'Other'}</option>
                         </select>
@@ -1338,14 +1347,17 @@ export default function EmployeeDetails(): React.JSX.Element {
                     {!editingShift && (
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                {t('numberOfDays') || 'Number of Days'}
+                                {t('days') || 'Number of Days'}
                             </label>
                             <input
                                 type="number"
                                 min="1"
                                 max="30"
                                 value={formData.days}
-                                onChange={(e) => setFormData({ ...formData, days: parseInt(e.target.value) || 1 })}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setFormData({ ...formData, days: val === '' ? ('' as any) : parseInt(val) })
+                                }}
                                 className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
                             />
                             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -1530,8 +1542,8 @@ export default function EmployeeDetails(): React.JSX.Element {
                 <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 p-4">
                     <div className="flex justify-between items-center mb-1">
                         <span className="text-sm text-slate-600 dark:text-slate-400">{t('currentBalance') || 'Current Balance'}:</span>
-                        <span className={cn("text-lg font-bold", payOffSnapshot >= 0 ? "text-emerald-600" : "text-red-600")}>
-                            {payOffSnapshot > 0 ? '+' : ''}{payOffSnapshot.toFixed(1)}h
+                        <span className={cn("text-lg font-bold", (payOffSnapshot || 0) >= 0 ? "text-emerald-600" : "text-red-600")}>
+                            {(payOffSnapshot || 0) > 0 ? '+' : ''}{(payOffSnapshot || 0).toFixed(1)}h
                         </span>
                     </div>
                     
@@ -1552,7 +1564,7 @@ export default function EmployeeDetails(): React.JSX.Element {
                         {t('payOffExplanation') || 'This action will create an adjustment to set the accumulated balance to zero.'}
                         <br/>
                         <span className="text-blue-600 dark:text-blue-400 mt-1 block">
-                            {t('adjustmentAppliedTo') || 'Adjustment will be applied to'}: {format(new Date(), 'MMMM yyyy')}
+                            {t('adjustmentAppliedTo') || 'Adjustment will be applied to'}: {format(new Date(), 'MMMM yyyy', { locale: dateLocale })}
                         </span>
                     </p>
                 </div>

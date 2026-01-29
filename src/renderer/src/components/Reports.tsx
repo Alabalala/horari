@@ -303,7 +303,12 @@ export default function Reports(): React.JSX.Element {
                             const emp = employees[adj.employeeId]
                             const date = parseISO(adj.createdAt)
                             const monthDate = parseISO(adj.monthId + '-01')
-                            const balanceBefore = adj.balanceAfter !== undefined ? adj.balanceAfter - adj.amount : undefined
+                            
+                            // Safety checks
+                            const amount = typeof adj.amount === 'number' && !isNaN(adj.amount) ? adj.amount : 0
+                            const hasBalanceAfter = adj.balanceAfter !== undefined && adj.balanceAfter !== null && !isNaN(adj.balanceAfter)
+                            const balanceAfter = hasBalanceAfter ? adj.balanceAfter : undefined
+                            const balanceBefore = balanceAfter !== undefined ? balanceAfter - amount : undefined
                             
                             return (
                               <tr key={adj.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 print:hover:bg-transparent">
@@ -329,19 +334,19 @@ export default function Reports(): React.JSX.Element {
                                 </td>
                                 <td className={cn(
                                   "px-6 py-4 text-right font-bold",
-                                  adj.amount > 0 ? "text-emerald-600 dark:text-emerald-400" : 
-                                  adj.amount < 0 ? "text-red-600 dark:text-red-400" : 
+                                  amount > 0 ? "text-emerald-600 dark:text-emerald-400" : 
+                                  amount < 0 ? "text-red-600 dark:text-red-400" : 
                                   "text-slate-600 dark:text-slate-400"
                                 )}>
-                                  {adj.amount > 0 ? '+' : ''}{adj.amount.toFixed(2)}
+                                  {amount > 0 ? '+' : ''}{amount.toFixed(2)}
                                 </td>
                                 <td className={cn(
                                   "px-6 py-4 text-right font-medium",
-                                  (adj.balanceAfter || 0) > 0 ? "text-emerald-600 dark:text-emerald-400" : 
-                                  (adj.balanceAfter || 0) < 0 ? "text-red-600 dark:text-red-400" : 
+                                  (balanceAfter || 0) > 0 ? "text-emerald-600 dark:text-emerald-400" : 
+                                  (balanceAfter || 0) < 0 ? "text-red-600 dark:text-red-400" : 
                                   "text-slate-600 dark:text-slate-400"
                                 )}>
-                                  {adj.balanceAfter !== undefined ? ((adj.balanceAfter > 0 ? '+' : '') + adj.balanceAfter.toFixed(2)) : '-'}
+                                  {balanceAfter !== undefined ? ((balanceAfter > 0 ? '+' : '') + balanceAfter.toFixed(2)) : '-'}
                                 </td>
                               </tr>
                             )

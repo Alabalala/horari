@@ -37,8 +37,8 @@ declare global {
         setWeeklyHours: (employeeId: number, weekStart: string, hours: number) => Promise<void>
       }
       shifts: {
-        get: (employeeId: number, startDate?: string, endDate?: string) => Promise<unknown[]>
-        getAll: (startDate?: string, endDate?: string) => Promise<unknown[]>
+        get: (employeeId: number, startDate?: string, endDate?: string, scenarioId?: string | null) => Promise<unknown[]>
+        getAll: (startDate?: string, endDate?: string, scenarioId?: string | null) => Promise<unknown[]>
         add: (shift: { 
           employeeId: number
           startTime: string
@@ -46,6 +46,7 @@ declare global {
           type?: 'work' | 'absence'
           absenceType?: string
           isPaid?: boolean
+          scenarioId?: string | null
         }) => Promise<void>
         update: (
           id: number,
@@ -56,9 +57,17 @@ declare global {
             type?: 'work' | 'absence'
             absenceType?: string
             isPaid?: boolean
+            scenarioId?: string | null
           }
         ) => Promise<void>
         delete: (id: number) => Promise<void>
+      }
+      scenarios: {
+        getAll: () => Promise<unknown[]>
+        create: (name: string, description: string | undefined, startDate: string, endDate: string) => Promise<{ id: string, name: string, createdAt: string, description?: string, startDate: string, endDate: string }>
+        delete: (id: string) => Promise<void>
+        cloneLiveShifts: (scenarioId: string, startDate: string, endDate: string) => Promise<void>
+        publish: (scenarioId: string) => Promise<void>
       }
       monthlyClosures: {
         get: (monthId: string) => Promise<unknown | undefined>
@@ -96,6 +105,11 @@ declare global {
         saveExport: (data: string, filename: string) => Promise<{ success: boolean; filePath?: string; canceled?: boolean }>
         getAppVersion: () => Promise<string>
         getReleaseNotes: () => Promise<Array<{ version: string; date: string; notes: Record<string, string[]> }> | null>
+      }
+      backup: {
+        create: () => Promise<{ filename: string; date: string; size: number }>
+        list: () => Promise<Array<{ filename: string; date: string; size: number }>>
+        restore: (filename: string) => Promise<void>
       }
     }
   }

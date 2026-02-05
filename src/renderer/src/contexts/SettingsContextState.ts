@@ -10,6 +10,8 @@ export type Settings = {
   autoUpdate?: string
   showSidebarCalendar?: string
   showCalendar?: boolean
+  autoBackupFrequency?: string
+  lastAutoBackup?: string
   visibleStats: {
     monthlyTarget: boolean
     weeklyTarget: boolean

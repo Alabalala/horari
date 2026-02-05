@@ -1,7 +1,8 @@
 import { useRef, useState, useEffect } from 'react'
 import { useSettings } from '../hooks/useSettings'
-import { Upload, X, RefreshCw, Download, Loader2, CheckCircle, AlertCircle, Sparkles } from 'lucide-react'
+import { Upload, X, RefreshCw, Download, Loader2, CheckCircle, AlertCircle, Sparkles, Database } from 'lucide-react'
 import WhatsNewModal from './WhatsNewModal'
+import ConfirmModal from './ConfirmModal'
 
 export default function Settings(): React.JSX.Element {
   const { settings, updateSetting, t } = useSettings()
@@ -14,6 +15,47 @@ export default function Settings(): React.JSX.Element {
   const [appVersion, setAppVersion] = useState<string>('')
   const [showWhatsNew, setShowWhatsNew] = useState(false)
   const [releaseNotes, setReleaseNotes] = useState<any[]>([])
+
+  const [backups, setBackups] = useState<any[]>([])
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState<string | null>(null)
+  const [isBackingUp, setIsBackingUp] = useState(false)
+
+  const fetchBackups = async () => {
+    try {
+      const list = await window.api.backup.list()
+      setBackups(list)
+    } catch (error) {
+      console.error('Failed to fetch backups:', error)
+    }
+  }
+
+  useEffect(() => {
+    fetchBackups()
+  }, [])
+  
+  const handleBackupNow = async () => {
+    setIsBackingUp(true)
+    try {
+        await window.api.backup.create()
+        await fetchBackups()
+    } catch (error) {
+        console.error('Backup failed:', error)
+        alert('Backup failed')
+    } finally {
+        setIsBackingUp(false)
+    }
+  }
+  
+  const handleRestore = async () => {
+    if (!showRestoreConfirm) return
+    try {
+        await window.api.backup.restore(showRestoreConfirm)
+        window.location.reload()
+    } catch (error) {
+        console.error('Restore failed:', error)
+        alert('Restore failed')
+    }
+  }
 
   useEffect(() => {
     window.api.utils.getAppVersion().then(setAppVersion)
@@ -235,6 +277,75 @@ export default function Settings(): React.JSX.Element {
           </div>
         </div>
 
+        {/* Data Backup */}
+        <div className="bg-white dark:bg-slate-900/50 p-6 rounded-lg border border-slate-200 dark:border-slate-800">
+          <h2 className="text-lg font-semibold mb-4 text-slate-800 dark:text-slate-200 flex items-center gap-2">
+            <Database className="w-5 h-5" />
+            {t('dataBackup') || 'Data Backup'}
+          </h2>
+
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+                <div>
+                    <label className="text-slate-700 dark:text-slate-300 font-medium">{t('autoBackup') || 'Automatic Backup'}</label>
+                    <p className="text-sm text-slate-500">{t('autoBackupDesc') || 'Schedule automatic backups of your data'}</p>
+                </div>
+                <select
+                    value={settings.autoBackupFrequency || 'off'}
+                    onChange={(e) => updateSetting('autoBackupFrequency', e.target.value)}
+                    className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 text-slate-900 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                    <option value="off">{t('off') || 'Off'}</option>
+                    <option value="daily">{t('daily') || 'Daily'}</option>
+                    <option value="weekly">{t('weekly') || 'Weekly'}</option>
+                    <option value="monthly">{t('monthly') || 'Monthly'}</option>
+                </select>
+            </div>
+
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
+                <div className="flex items-center justify-between mb-4">
+                    <div>
+                         <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('recentBackups') || 'Recent Backups'}</h3>
+                         <p className="text-xs text-slate-500 mt-1">{t('backupRetention') || 'System keeps only the last 3 backups.'}</p>
+                    </div>
+                    <button
+                        onClick={handleBackupNow}
+                        disabled={isBackingUp}
+                        className="flex items-center px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+                    >
+                        {isBackingUp ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                        {t('backupNow') || 'Backup Now'}
+                    </button>
+                </div>
+
+                <div className="space-y-2">
+                    {backups.length === 0 ? (
+                        <p className="text-sm text-slate-500 italic">{t('noBackups') || 'No backups available'}</p>
+                    ) : (
+                        backups.map((backup) => (
+                            <div key={backup.filename} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-800">
+                                <div>
+                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                                        {new Date(backup.date).toLocaleString()}
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                        {(backup.size / 1024).toFixed(1)} KB
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setShowRestoreConfirm(backup.filename)}
+                                    className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                                >
+                                    {t('restore') || 'Restore'}
+                                </button>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+          </div>
+        </div>
+
         {/* Software Update */}
         <div className="bg-white dark:bg-slate-900/50 p-6 rounded-lg border border-slate-200 dark:border-slate-800">
           <h2 className="text-lg font-semibold mb-4 text-slate-800 dark:text-slate-200">
@@ -350,6 +461,17 @@ export default function Settings(): React.JSX.Element {
         isOpen={showWhatsNew} 
         onClose={() => setShowWhatsNew(false)} 
         releaseNotes={releaseNotes} 
+      />
+
+      <ConfirmModal
+        isOpen={!!showRestoreConfirm}
+        title={t('restoreBackup') || 'Restore Backup'}
+        message={t('restoreWarning') || 'WARNING: This will overwrite all current data with the backup data. This action cannot be undone. Are you sure you want to proceed?'}
+        onConfirm={handleRestore}
+        onCancel={() => setShowRestoreConfirm(null)}
+        confirmText={t('restore') || 'Restore'}
+        cancelText={t('cancel') || 'Cancel'}
+        type="danger"
       />
     </div>
   )

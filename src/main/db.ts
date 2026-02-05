@@ -1,12 +1,10 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
+import { randomUUID } from 'crypto'
 
 const dbPath = join(app.getPath('userData'), 'horari.db')
 console.log('Database path:', dbPath)
-const db = new Database(dbPath)
-
-db.pragma('journal_mode = WAL')
 
 export type Employee = {
   id?: number
@@ -43,6 +41,16 @@ export type Shift = {
   type: 'work' | 'absence'
   absenceType?: 'holiday' | 'bank_holiday' | 'sick_leave' | 'unpaid' | 'other'
   isPaid: boolean
+  scenarioId?: string
+}
+
+export type Scenario = {
+  id: string
+  name: string
+  createdAt: string
+  description?: string
+  startDate: string
+  endDate: string
 }
 
 export type MonthlyHours = {
@@ -62,123 +70,174 @@ export type BalanceAdjustment = {
   balanceAfter?: number
 }
 
-// Initialize tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS employees (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    role TEXT NOT NULL,
-    department TEXT NOT NULL,
-    status TEXT NOT NULL
-  );
+export let db: Database.Database
 
-  CREATE TABLE IF NOT EXISTS shifts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    employeeId INTEGER NOT NULL,
-    startTime TEXT NOT NULL,
-    endTime TEXT NOT NULL,
-    FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE
-  );
+function initializeDatabase() {
+  db = new Database(dbPath)
+  db.pragma('journal_mode = WAL')
 
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
+  // Initialize tables
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS employees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      department TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
   
-  CREATE TABLE IF NOT EXISTS monthly_hours (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    employeeId INTEGER NOT NULL,
-    month TEXT NOT NULL,
-    hours REAL NOT NULL,
-    FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE,
-    UNIQUE(employeeId, month)
-  );
+    CREATE TABLE IF NOT EXISTS shifts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employeeId INTEGER NOT NULL,
+      startTime TEXT NOT NULL,
+      endTime TEXT NOT NULL,
+      FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE
+    );
+  
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    
+    CREATE TABLE IF NOT EXISTS monthly_hours (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employeeId INTEGER NOT NULL,
+      month TEXT NOT NULL,
+      hours REAL NOT NULL,
+      FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE,
+      UNIQUE(employeeId, month)
+    );
+  
+    CREATE TABLE IF NOT EXISTS weekly_hours (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employeeId INTEGER NOT NULL,
+      weekStart TEXT NOT NULL,
+      hours REAL NOT NULL,
+      FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE,
+      UNIQUE(employeeId, weekStart)
+    );
+  
+    CREATE TABLE IF NOT EXISTS monthly_closures (
+      monthId TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      closedAt TEXT NOT NULL,
+      balances TEXT NOT NULL
+    );
+  
+    CREATE TABLE IF NOT EXISTS balance_adjustments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employeeId INTEGER NOT NULL,
+      monthId TEXT NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE
+    );
 
-  CREATE TABLE IF NOT EXISTS weekly_hours (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    employeeId INTEGER NOT NULL,
-    weekStart TEXT NOT NULL,
-    hours REAL NOT NULL,
-    FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE,
-    UNIQUE(employeeId, weekStart)
-  );
+    CREATE TABLE IF NOT EXISTS scenarios (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      description TEXT,
+      startDate TEXT,
+      endDate TEXT
+    );
+  `)
+  
+  try {
+    db.exec('ALTER TABLE employees ADD COLUMN defaultHours REAL DEFAULT 40')
+  } catch (error) {
+    // Column likely exists
+  }
+  
+  try {
+    db.exec('ALTER TABLE employees ADD COLUMN displayOrder INTEGER DEFAULT 0')
+  } catch (error) {
+    // Column likely exists
+  }
+  
+  try {
+    db.exec('ALTER TABLE employees ADD COLUMN initialBalance REAL DEFAULT 0')
+  } catch (error) {
+    // Column likely exists
+  }
+  
+  // Migrations for Shift Absence
+  try {
+    db.exec("ALTER TABLE shifts ADD COLUMN type TEXT DEFAULT 'work'")
+  } catch (error) {
+    // Column likely exists
+  }
+  
+  try {
+    db.exec('ALTER TABLE shifts ADD COLUMN absenceType TEXT')
+  } catch (error) {
+    // Column likely exists
+  }
+  
+  try {
+    db.exec('ALTER TABLE shifts ADD COLUMN isPaid INTEGER DEFAULT 1')
+  } catch (error) {
+    // Column likely exists
+  }
 
-  CREATE TABLE IF NOT EXISTS monthly_closures (
-    monthId TEXT PRIMARY KEY,
-    status TEXT NOT NULL,
-    closedAt TEXT NOT NULL,
-    balances TEXT NOT NULL
-  );
+  try {
+    db.exec('ALTER TABLE shifts ADD COLUMN scenarioId TEXT')
+  } catch (error) {
+    // Column likely exists
+  }
+  
+  try {
+    db.exec('ALTER TABLE balance_adjustments ADD COLUMN balanceAfter REAL')
+  } catch (error) {
+    // Column likely exists
+  }
 
-  CREATE TABLE IF NOT EXISTS balance_adjustments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    employeeId INTEGER NOT NULL,
-    monthId TEXT NOT NULL,
-    amount REAL NOT NULL,
-    description TEXT,
-    createdAt TEXT NOT NULL,
-    FOREIGN KEY(employeeId) REFERENCES employees(id) ON DELETE CASCADE
-  );
-`)
-
-try {
-  db.exec('ALTER TABLE employees ADD COLUMN defaultHours REAL DEFAULT 40')
-} catch (error) {
-  // Column likely exists
+  // Migrations for Scenarios
+  try {
+    db.exec('ALTER TABLE scenarios ADD COLUMN startDate TEXT')
+    db.exec('ALTER TABLE scenarios ADD COLUMN endDate TEXT')
+  } catch (error) {
+    // Column likely exists
+  }
+  
+  // Initialize default settings if they don't exist
+  const defaultSettings = {
+    language: 'en',
+    theme: 'dark',
+    companyName: 'My Company',
+    openingTime: '08:00',
+    closingTime: '20:00',
+    autoUpdate: 'true',
+    showSidebarCalendar: 'false'
+  }
+  
+  const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
+  Object.entries(defaultSettings).forEach(([key, value]) => {
+    insertSetting.run(key, value)
+  })
 }
 
-try {
-  db.exec('ALTER TABLE employees ADD COLUMN displayOrder INTEGER DEFAULT 0')
-} catch (error) {
-  // Column likely exists
+initializeDatabase()
+
+export function restoreDatabase(backupPath: string) {
+  if (db) {
+    db.close()
+  }
+  
+  try {
+    const fs = require('fs')
+    fs.copyFileSync(backupPath, dbPath)
+  } catch (error) {
+    console.error('Failed to restore database:', error)
+    // Try to re-open the existing database so the app doesn't crash completely
+    initializeDatabase()
+    throw error
+  }
+  
+  initializeDatabase()
 }
 
-try {
-  db.exec('ALTER TABLE employees ADD COLUMN initialBalance REAL DEFAULT 0')
-} catch (error) {
-  // Column likely exists
-}
-
-// Migrations for Shift Absence
-try {
-  db.exec("ALTER TABLE shifts ADD COLUMN type TEXT DEFAULT 'work'")
-} catch (error) {
-  // Column likely exists
-}
-
-try {
-  db.exec('ALTER TABLE shifts ADD COLUMN absenceType TEXT')
-} catch (error) {
-  // Column likely exists
-}
-
-try {
-  db.exec('ALTER TABLE shifts ADD COLUMN isPaid INTEGER DEFAULT 1')
-} catch (error) {
-  // Column likely exists
-}
-
-try {
-  db.exec('ALTER TABLE balance_adjustments ADD COLUMN balanceAfter REAL')
-} catch (error) {
-  // Column likely exists
-}
-
-// Initialize default settings if they don't exist
-const defaultSettings = {
-  language: 'en',
-  theme: 'dark',
-  companyName: 'My Company',
-  openingTime: '08:00',
-  closingTime: '20:00',
-  autoUpdate: 'true',
-  showSidebarCalendar: 'false'
-}
-
-const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
-Object.entries(defaultSettings).forEach(([key, value]) => {
-  insertSetting.run(key, value)
-})
 
 export type Setting = {
   key: string
@@ -292,9 +351,25 @@ export function setWeeklyHours(
   return stmt.run(employeeId, weekStart, hours, hours)
 }
 
-export function getShifts(employeeId: number, startDate?: string, endDate?: string): Shift[] {
+export function getShifts(employeeId: number, startDate?: string, endDate?: string, scenarioId?: string | null): Shift[] {
   let query = 'SELECT * FROM shifts WHERE employeeId = ?'
   const params: (number | string)[] = [employeeId]
+
+  if (scenarioId) {
+    const scenario = db.prepare('SELECT startDate, endDate FROM scenarios WHERE id = ?').get(scenarioId) as { startDate: string, endDate: string } | undefined
+    
+    if (scenario && scenario.startDate && scenario.endDate) {
+      // Fetch draft shifts OR live shifts outside the scenario range
+      query += ' AND (scenarioId = ? OR (scenarioId IS NULL AND (endTime < ? OR startTime > ?)))'
+      params.push(scenarioId, scenario.startDate, scenario.endDate)
+    } else {
+       // Fallback for legacy scenarios or missing dates
+       query += ' AND scenarioId = ?'
+       params.push(scenarioId)
+    }
+  } else {
+    query += ' AND scenarioId IS NULL'
+  }
 
   if (startDate && endDate) {
     query += ' AND startTime >= ? AND endTime <= ?'
@@ -307,7 +382,8 @@ export function getShifts(employeeId: number, startDate?: string, endDate?: stri
 
 export function getAllShifts(
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  scenarioId?: string | null
 ): (Shift & { employeeName: string })[] {
   let query = `
     SELECT shifts.*, employees.name as employeeName 
@@ -316,6 +392,20 @@ export function getAllShifts(
     WHERE 1=1
   `
   const params: string[] = []
+
+  if (scenarioId) {
+    const scenario = db.prepare('SELECT startDate, endDate FROM scenarios WHERE id = ?').get(scenarioId) as { startDate: string, endDate: string } | undefined
+    
+    if (scenario && scenario.startDate && scenario.endDate) {
+      query += ' AND (shifts.scenarioId = ? OR (shifts.scenarioId IS NULL AND (shifts.endTime < ? OR shifts.startTime > ?)))'
+      params.push(scenarioId, scenario.startDate, scenario.endDate)
+    } else {
+       query += ' AND shifts.scenarioId = ?'
+       params.push(scenarioId)
+    }
+  } else {
+    query += ' AND shifts.scenarioId IS NULL'
+  }
 
   if (startDate && endDate) {
     query += ' AND startTime >= ? AND startTime <= ?'
@@ -327,15 +417,15 @@ export function getAllShifts(
 }
 
 export function addShift(shift: Omit<Shift, 'id'>): Database.RunResult {
-  const stmt = db.prepare('INSERT INTO shifts (employeeId, startTime, endTime, type, absenceType, isPaid) VALUES (?, ?, ?, ?, ?, ?)')
-  return stmt.run(shift.employeeId, shift.startTime, shift.endTime, shift.type || 'work', shift.absenceType || null, shift.isPaid ? 1 : 0)
+  const stmt = db.prepare('INSERT INTO shifts (employeeId, startTime, endTime, type, absenceType, isPaid, scenarioId) VALUES (?, ?, ?, ?, ?, ?, ?)')
+  return stmt.run(shift.employeeId, shift.startTime, shift.endTime, shift.type || 'work', shift.absenceType || null, shift.isPaid ? 1 : 0, shift.scenarioId || null)
 }
 
 export function updateShift(id: number, shift: Omit<Shift, 'id'>): Database.RunResult {
   const stmt = db.prepare(
-    'UPDATE shifts SET employeeId = ?, startTime = ?, endTime = ?, type = ?, absenceType = ?, isPaid = ? WHERE id = ?'
+    'UPDATE shifts SET employeeId = ?, startTime = ?, endTime = ?, type = ?, absenceType = ?, isPaid = ?, scenarioId = ? WHERE id = ?'
   )
-  return stmt.run(shift.employeeId, shift.startTime, shift.endTime, shift.type || 'work', shift.absenceType || null, shift.isPaid ? 1 : 0, id)
+  return stmt.run(shift.employeeId, shift.startTime, shift.endTime, shift.type || 'work', shift.absenceType || null, shift.isPaid ? 1 : 0, shift.scenarioId || null, id)
 }
 
 export function deleteShift(id: number): Database.RunResult {
@@ -386,4 +476,66 @@ export function addBalanceAdjustment(adjustment: Omit<BalanceAdjustment, 'id'>):
 export function deleteBalanceAdjustment(id: number): Database.RunResult {
   const stmt = db.prepare('DELETE FROM balance_adjustments WHERE id = ?')
   return stmt.run(id)
+}
+
+// Scenario operations
+export function getScenarios(): Scenario[] {
+  return db.prepare('SELECT * FROM scenarios ORDER BY createdAt DESC').all() as Scenario[]
+}
+
+export function createScenario(name: string, startDate: string, endDate: string, description?: string): Scenario {
+  const id = randomUUID()
+  const createdAt = new Date().toISOString()
+  const stmt = db.prepare('INSERT INTO scenarios (id, name, createdAt, description, startDate, endDate) VALUES (?, ?, ?, ?, ?, ?)')
+  stmt.run(id, name, createdAt, description || null, startDate, endDate)
+  return { id, name, createdAt, description, startDate, endDate }
+}
+
+export function deleteScenario(id: string): void {
+  const deleteShifts = db.prepare('DELETE FROM shifts WHERE scenarioId = ?')
+  const deleteScenario = db.prepare('DELETE FROM scenarios WHERE id = ?')
+  
+  const transaction = db.transaction(() => {
+    deleteShifts.run(id)
+    deleteScenario.run(id)
+  })
+  
+  transaction()
+}
+
+export function cloneLiveShifts(scenarioId: string, startDate: string, endDate: string): Database.RunResult {
+  const stmt = db.prepare(`
+    INSERT INTO shifts (employeeId, startTime, endTime, type, absenceType, isPaid, scenarioId)
+    SELECT employeeId, startTime, endTime, type, absenceType, isPaid, ?
+    FROM shifts
+    WHERE scenarioId IS NULL
+    AND startTime >= ? AND endTime <= ?
+  `)
+  
+  return stmt.run(scenarioId, startDate, endDate)
+}
+
+export function publishScenario(scenarioId: string): void {
+  const transaction = db.transaction(() => {
+    const scenario = db.prepare('SELECT startDate, endDate FROM scenarios WHERE id = ?').get(scenarioId) as { startDate: string, endDate: string } | undefined
+
+    if (scenario && scenario.startDate && scenario.endDate) {
+      // 1. Delete overlapping live shifts in the defined range
+      db.prepare('DELETE FROM shifts WHERE scenarioId IS NULL AND startTime >= ? AND endTime <= ?').run(scenario.startDate, scenario.endDate)
+    } else {
+       // Fallback: Use shift range (old logic)
+       const range = db.prepare('SELECT MIN(startTime) as start, MAX(endTime) as end FROM shifts WHERE scenarioId = ?').get(scenarioId) as { start: string, end: string }
+       if (range.start && range.end) {
+          db.prepare('DELETE FROM shifts WHERE scenarioId IS NULL AND startTime >= ? AND endTime <= ?').run(range.start, range.end)
+       }
+    }
+
+    // 2. Promote draft shifts to live
+    db.prepare('UPDATE shifts SET scenarioId = NULL WHERE scenarioId = ?').run(scenarioId)
+
+    // 3. Delete scenario metadata
+    db.prepare('DELETE FROM scenarios WHERE id = ?').run(scenarioId)
+  })
+  
+  transaction()
 }

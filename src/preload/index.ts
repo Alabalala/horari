@@ -17,12 +17,19 @@ const api = {
     setWeeklyHours: (employeeId, weekStart, hours) => ipcRenderer.invoke('set-weekly-hours', { employeeId, weekStart, hours })
   },
   shifts: {
-    get: (employeeId, startDate, endDate) =>
-      ipcRenderer.invoke('get-shifts', { employeeId, startDate, endDate }),
-    getAll: (startDate, endDate) => ipcRenderer.invoke('get-all-shifts', { startDate, endDate }),
+    get: (employeeId, startDate, endDate, scenarioId) =>
+      ipcRenderer.invoke('get-shifts', { employeeId, startDate, endDate, scenarioId }),
+    getAll: (startDate, endDate, scenarioId) => ipcRenderer.invoke('get-all-shifts', { startDate, endDate, scenarioId }),
     add: (shift) => ipcRenderer.invoke('add-shift', shift),
     update: (id, shift) => ipcRenderer.invoke('update-shift', { id, ...shift }),
     delete: (id) => ipcRenderer.invoke('delete-shift', id)
+  },
+  scenarios: {
+    getAll: () => ipcRenderer.invoke('get-scenarios'),
+    create: (name, description, startDate, endDate) => ipcRenderer.invoke('create-scenario', { name, description, startDate, endDate }),
+    delete: (id) => ipcRenderer.invoke('delete-scenario', id),
+    cloneLiveShifts: (scenarioId, startDate, endDate) => ipcRenderer.invoke('clone-live-shifts', { scenarioId, startDate, endDate }),
+    publish: (scenarioId) => ipcRenderer.invoke('publish-scenario', scenarioId)
   },
   monthlyClosures: {
     get: (monthId) => ipcRenderer.invoke('get-monthly-closure', monthId),
@@ -48,6 +55,11 @@ const api = {
     saveExport: (data, filename) => ipcRenderer.invoke('save-export', { data, filename }),
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
     getReleaseNotes: () => ipcRenderer.invoke('get-release-notes')
+  },
+  backup: {
+    create: () => ipcRenderer.invoke('create-backup'),
+    list: () => ipcRenderer.invoke('get-backups'),
+    restore: (filename) => ipcRenderer.invoke('restore-backup', filename)
   }
 }
 

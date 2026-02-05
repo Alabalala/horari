@@ -36,11 +36,14 @@ import {
   Copy,
   Lock,
   Unlock,
-  FileText
+  FileText,
+  Upload,
+  Settings as SettingsIcon
 } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
+import { useScenarios } from '../contexts/ScenariosContext'
 import ShiftContextMenu from './ShiftContextMenu'
-import { Employee, Shift, BalanceAdjustment } from '../types'
+import { Employee, Shift, BalanceAdjustment, Scenario } from '../types'
 import { calculateMonthStats, MonthlyClosure } from '@renderer/lib/balanceUtils'
 import { cn } from '@renderer/lib/utils'
 import ShiftTimelineItem from './ShiftTimelineItem'
@@ -50,6 +53,7 @@ import PrintWeekModal from './PrintWeekModal'
 import PrintWeeklyScheduleModal from './PrintWeeklyScheduleModal'
 import { StatsVisibilityMenu } from './StatsVisibilityMenu'
 import CopyShiftsModal from './CopyShiftsModal'
+import CreateScenarioModal from './CreateScenarioModal'
 
 // Component for the timeline view of a single employee row
 const ShiftTimelineContainer = ({
@@ -123,6 +127,7 @@ const ShiftTimelineContainer = ({
 
 export default function Shifts(): React.JSX.Element {
   const { t, settings } = useSettings()
+  const { activeScenario, scenarios, setActiveScenario, createScenario, deleteScenario, publishScenario, cloneLiveShifts } = useScenarios()
   const dateLocale = settings.language === 'es' ? es : undefined
   const navigate = useNavigate()
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -202,6 +207,7 @@ export default function Shifts(): React.JSX.Element {
 
   const [isPrintWeeklyModalOpen, setIsPrintWeeklyModalOpen] = useState(false)
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false)
+  const [isCreateScenarioModalOpen, setIsCreateScenarioModalOpen] = useState(false)
   
   // Weekly Hours Overrides State
   const [weeklyHoursOverrides, setWeeklyHoursOverrides] = useState<Record<string, Record<number, number>>>({})
@@ -251,7 +257,7 @@ export default function Shifts(): React.JSX.Element {
         try {
             const rangeStart = startOfDay(startDateTime).toISOString()
             const rangeEnd = endOfDay(endDateTime).toISOString()
-            const fetchedShifts = await window.api.shifts.get(formData.employeeId, rangeStart, rangeEnd) as Shift[]
+            const fetchedShifts = await window.api.shifts.get(formData.employeeId, rangeStart, rangeEnd, activeScenario?.id) as Shift[]
             
             const hasOverlap = fetchedShifts.some(s => {
                 if (editingShift && s.id === editingShift.id) return false
@@ -352,7 +358,7 @@ export default function Shifts(): React.JSX.Element {
          console.error("API Error: window.api.shifts is undefined. Available keys:", window.api ? Object.keys(window.api) : 'window.api is null')
          throw new Error("Internal Error: API 'shifts' module is missing. Please restart the application.")
       }
-      const rangeShifts = await window.api.shifts.getAll(startStr, endStr)
+      const rangeShifts = await window.api.shifts.getAll(startStr, endStr, activeScenario?.id)
       setShifts(rangeShifts as Shift[])
 
       // 4. Fetch Weekly Hours (unchanged logic)
@@ -387,7 +393,7 @@ export default function Shifts(): React.JSX.Element {
 
   useEffect(() => {
     fetchData()
-  }, [currentDate, view])
+  }, [currentDate, view, activeScenario])
 
   // Group employees by department
   const groupedEmployees = useMemo(() => {
@@ -452,6 +458,7 @@ export default function Shifts(): React.JSX.Element {
 
   const handleToggleMonthStatus = async () => {
     if (view !== 'month') return
+    if (activeScenario) return // Disable closure in draft mode
 
     const monthId = format(currentDate, 'yyyy-MM')
     const existing = monthlyClosures.find(c => c.monthId === monthId && c.status === 'LOCKED')
@@ -529,7 +536,8 @@ export default function Shifts(): React.JSX.Element {
         
         try {
             // Fetch all shifts in the gap period + current month
-            const historicalShifts = await window.api.shifts.getAll(historyStart, historyEnd) as Shift[]
+            // We are guaranteed to be in live mode (activeScenario is null) because of the check at the start of the function
+            const historicalShifts = await window.api.shifts.getAll(historyStart, historyEnd, null) as Shift[]
             if (historicalShifts && historicalShifts.length > 0) {
                 shiftsToUse = historicalShifts
             }
@@ -728,7 +736,8 @@ export default function Shifts(): React.JSX.Element {
                     endTime: endDateTime.toISOString(),
                     type: 'absence' as const,
                     absenceType: formData.absenceType,
-                    isPaid: formData.isPaid
+                    isPaid: formData.isPaid,
+                    scenarioId: activeScenario?.id || null
                 }
 
                 if (editingShift) {
@@ -755,7 +764,8 @@ export default function Shifts(): React.JSX.Element {
                 endTime: endDateTime.toISOString(),
                 type: 'work' as const,
                 absenceType: null,
-                isPaid: true
+                isPaid: true,
+                scenarioId: activeScenario?.id || null
             }
 
             if (editingShift) {
@@ -801,6 +811,56 @@ export default function Shifts(): React.JSX.Element {
     setIsModalOpen(false)
     setOverlapError(null)
     setBusinessHourWarning(null)
+  }
+
+  const handleCreateScenario = async (name: string, startDate: string, endDate: string, description: string, cloneFromLive: boolean) => {
+    try {
+      const scenario = await createScenario(name, startDate, endDate, description)
+      if (cloneFromLive) {
+        await cloneLiveShifts(scenario.id, startDate, endDate)
+      }
+      setActiveScenario(scenario)
+      setIsCreateScenarioModalOpen(false)
+    } catch (error) {
+      console.error("Failed to create scenario", error)
+      alert(t('errorCreatingScenario') || "Failed to create scenario")
+    }
+  }
+
+  const handlePublishScenario = () => {
+    if (!activeScenario) return
+    setConfirmState({
+      isOpen: true,
+      title: t('publishScenario') || 'Publish Scenario',
+      message: t('publishScenarioConfirm') || 'Are you sure you want to publish this scenario? This will overwrite the live roster for the affected period.',
+      type: 'warning',
+      onConfirm: async () => {
+        try {
+          await publishScenario(activeScenario.id)
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+        } catch (error) {
+          console.error("Failed to publish scenario", error)
+        }
+      }
+    })
+  }
+
+  const handleDeleteScenario = () => {
+    if (!activeScenario) return
+    setConfirmState({
+      isOpen: true,
+      title: t('deleteScenario') || 'Delete Scenario',
+      message: t('deleteScenarioConfirm') || 'Are you sure you want to delete this draft scenario? This action cannot be undone.',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteScenario(activeScenario.id)
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+        } catch (error) {
+          console.error("Failed to delete scenario", error)
+        }
+      }
+    })
   }
 
   const isMonthLocked = (date: Date | string) => {
@@ -906,7 +966,7 @@ export default function Shifts(): React.JSX.Element {
         // Fetch potentially overlapping shifts for robust validation
         const rangeStart = startOfDay(start).toISOString()
         const rangeEnd = endOfDay(end).toISOString()
-        const fetchedShifts = await window.api.shifts.get(currentShift.employeeId, rangeStart, rangeEnd) as Shift[]
+        const fetchedShifts = await window.api.shifts.get(currentShift.employeeId, rangeStart, rangeEnd, activeScenario?.id) as Shift[]
         
         const hasOverlap = fetchedShifts.some(s => {
             if (s.id === id) return false
@@ -929,7 +989,7 @@ export default function Shifts(): React.JSX.Element {
             return
         }
 
-        await window.api.shifts.update(id, { employeeId: currentShift.employeeId, startTime, endTime })
+        await window.api.shifts.update(id, { employeeId: currentShift.employeeId, startTime, endTime, scenarioId: activeScenario?.id || null })
         // Optimistic update
         setShifts(prev => prev.map(s => s.id === id ? { ...s, startTime, endTime } : s))
         
@@ -1037,11 +1097,78 @@ export default function Shifts(): React.JSX.Element {
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">{t('shifts')}</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{t('shiftsDescription')}</p>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">
+            {activeScenario ? (
+              <span className="flex items-center gap-2">
+                <span className="text-amber-600 dark:text-amber-400 font-bold px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 rounded text-sm uppercase tracking-wide border border-amber-200 dark:border-amber-800">
+                  {t('draftMode') || 'DRAFT'}
+                </span>
+                {activeScenario.name}
+              </span>
+            ) : (
+              t('shifts')
+            )}
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {activeScenario ? (activeScenario.description || t('draftDescription') || 'Editing draft scenario') : t('shiftsDescription')}
+          </p>
         </div>
         
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+             <select
+               className={cn(
+                 "text-sm rounded-md border px-3 py-1.5 outline-none focus:ring-2 transition-colors min-w-[150px]",
+                 activeScenario 
+                   ? "border-amber-300 bg-amber-50 text-amber-900 focus:ring-amber-500 dark:bg-slate-900 dark:border-amber-700 dark:text-amber-100" 
+                   : "border-slate-200 bg-white text-slate-900 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+               )}
+               value={activeScenario?.id || ''}
+               onChange={(e) => {
+                 if (e.target.value === '') {
+                   setActiveScenario(null)
+                 } else if (e.target.value === 'new') {
+                   setIsCreateScenarioModalOpen(true)
+                 } else {
+                   const s = scenarios.find(s => s.id === e.target.value)
+                   if (s) setActiveScenario(s)
+                 }
+               }}
+             >
+               <option value="">{t('liveRoster') || 'Live Roster'}</option>
+               <optgroup label={t('scenarios') || 'Draft Scenarios'}>
+                 {scenarios.map(s => (
+                   <option key={s.id} value={s.id}>{s.name}</option>
+                 ))}
+               </optgroup>
+               <option value="new" className="font-semibold text-blue-600 dark:text-blue-400">
+                 + {t('createNewScenario') || 'Create New Draft...'}
+               </option>
+             </select>
+
+             {activeScenario && (
+               <>
+                 <button
+                   onClick={handlePublishScenario}
+                   className="px-3 py-1.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md shadow-sm transition-colors flex items-center gap-1"
+                   title={t('publishScenario') || 'Publish to Live'}
+                 >
+                   <Upload className="h-4 w-4" />
+                   <span className="hidden sm:inline">{t('publish') || 'Publish'}</span>
+                 </button>
+                 <button
+                   onClick={handleDeleteScenario}
+                   className="px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md transition-colors"
+                   title={t('deleteScenario') || 'Delete Draft'}
+                 >
+                   <Trash2 className="h-4 w-4" />
+                 </button>
+               </>
+             )}
+          </div>
+          
+          <div className="h-8 w-px bg-slate-200 dark:bg-slate-700 mx-2" />
+
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-1">
              <button
               onClick={() => {
@@ -1171,11 +1298,15 @@ export default function Shifts(): React.JSX.Element {
           {view === 'month' && (
             <button
               onClick={handleToggleMonthStatus}
+              disabled={!!activeScenario}
+              title={activeScenario ? (t('monthClosureDisabledInDraft') || "Month closure is disabled in Draft Mode") : ""}
               className={cn(
                 "flex items-center gap-2 px-3 py-2 border rounded-md transition-colors text-sm font-medium",
-                monthlyClosures.find(c => c.monthId === format(currentDate, 'yyyy-MM') && c.status === 'LOCKED')
-                  ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30"
-                  : "bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                activeScenario 
+                  ? "opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700"
+                  : monthlyClosures.find(c => c.monthId === format(currentDate, 'yyyy-MM') && c.status === 'LOCKED')
+                    ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                    : "bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
               )}
             >
               {monthlyClosures.find(c => c.monthId === format(currentDate, 'yyyy-MM') && c.status === 'LOCKED') ? (
@@ -2011,7 +2142,7 @@ export default function Shifts(): React.JSX.Element {
     cancelText={t('cancel') || 'Cancel'}
   />
 
-  {/* Context Menu */}
+      {/* Context Menu */}
       {contextMenu && (
         <ShiftContextMenu
           x={contextMenu.x}
@@ -2019,6 +2150,15 @@ export default function Shifts(): React.JSX.Element {
           onEdit={() => openEditModal(contextMenu.shift)}
           onDelete={() => handleDeleteShiftDirectly(contextMenu.shift)}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {/* Create Scenario Modal */}
+      {isCreateScenarioModalOpen && (
+        <CreateScenarioModal
+          isOpen={isCreateScenarioModalOpen}
+          onClose={() => setIsCreateScenarioModalOpen(false)}
+          onCreate={handleCreateScenario}
         />
       )}
     </div>

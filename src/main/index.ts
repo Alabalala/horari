@@ -29,8 +29,15 @@ import {
   deleteMonthlyClosure,
   getBalanceAdjustments,
   addBalanceAdjustment,
-  deleteBalanceAdjustment
+  deleteBalanceAdjustment,
+  getScenarios,
+  createScenario,
+  deleteScenario,
+  publishScenario,
+  cloneLiveShifts,
+  db
 } from './db'
+import { createBackup, getBackups, restoreBackup, checkAutoBackup } from './backup'
 
 function createWindow(): void {
   // Create the browser window.
@@ -77,6 +84,12 @@ app.whenReady().then(() => {
     autoUpdater.autoDownload = settings.autoUpdate === 'true'
     autoUpdater.checkForUpdatesAndNotify()
   }
+
+  // Check for auto backups
+  const runBackupCheck = () => checkAutoBackup().catch(console.error)
+  runBackupCheck()
+  // Check every hour
+  setInterval(runBackupCheck, 60 * 60 * 1000)
 
   // Auto Updater Events
   autoUpdater.on('checking-for-update', () => {
@@ -218,11 +231,11 @@ app.whenReady().then(() => {
     })
 
     // Shift CRUD
-    ipcMain.handle('get-shifts', (_, { employeeId, startDate, endDate }) => {
-      return getShifts(employeeId, startDate, endDate)
+    ipcMain.handle('get-shifts', (_, { employeeId, startDate, endDate, scenarioId }) => {
+      return getShifts(employeeId, startDate, endDate, scenarioId)
     })
-    ipcMain.handle('get-all-shifts', (_, { startDate, endDate }) => {
-      return getAllShifts(startDate, endDate)
+    ipcMain.handle('get-all-shifts', (_, { startDate, endDate, scenarioId }) => {
+      return getAllShifts(startDate, endDate, scenarioId)
     })
     ipcMain.handle('add-shift', (_, shift) => {
       return addShift(shift)
@@ -232,6 +245,23 @@ app.whenReady().then(() => {
     })
     ipcMain.handle('delete-shift', (_, id) => {
       return deleteShift(id)
+    })
+
+    // Scenarios
+    ipcMain.handle('get-scenarios', () => {
+      return getScenarios()
+    })
+    ipcMain.handle('create-scenario', (_, { name, description, startDate, endDate }) => {
+      return createScenario(name, startDate, endDate, description)
+    })
+    ipcMain.handle('delete-scenario', (_, id) => {
+      return deleteScenario(id)
+    })
+    ipcMain.handle('clone-live-shifts', (_, { scenarioId, startDate, endDate }) => {
+      return cloneLiveShifts(scenarioId, startDate, endDate)
+    })
+    ipcMain.handle('publish-scenario', (_, scenarioId) => {
+      return publishScenario(scenarioId)
     })
 
     // Monthly Closures
@@ -269,6 +299,11 @@ app.whenReady().then(() => {
       }
       return updateSetting(key, value)
     })
+
+    // Backup
+    ipcMain.handle('create-backup', () => createBackup())
+    ipcMain.handle('get-backups', () => getBackups())
+    ipcMain.handle('restore-backup', (_, filename) => restoreBackup(filename))
 
     // Export
     ipcMain.handle('save-export', async (_, { data, filename }) => {

@@ -10,6 +10,7 @@ import Reports from './components/Reports'
 import Settings from './components/Settings'
 import UpdateNotifier from './components/UpdateNotifier'
 import { SettingsProvider } from './contexts/SettingsContext'
+import { ScenariosProvider } from './contexts/ScenariosContext'
 import { useSettings } from './hooks/useSettings'
 
 function Layout(): React.JSX.Element {
@@ -72,9 +73,11 @@ function Layout(): React.JSX.Element {
 function App(): React.JSX.Element {
   return (
     <SettingsProvider>
-      <HashRouter>
-        <Layout />
-      </HashRouter>
+      <ScenariosProvider>
+        <HashRouter>
+          <Layout />
+        </HashRouter>
+      </ScenariosProvider>
     </SettingsProvider>
   )
 }

@@ -18,6 +18,16 @@ export type Shift = {
   absenceType?: 'holiday' | 'bank_holiday' | 'sick_leave' | 'unpaid' | 'other'
   isPaid: boolean
   employeeName?: string
+  scenarioId?: string
+}
+
+export type Scenario = {
+  id: string
+  name: string
+  createdAt: string
+  description?: string
+  startDate: string
+  endDate: string
 }
 
 export type MonthlyHours = {

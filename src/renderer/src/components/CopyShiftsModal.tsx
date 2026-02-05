@@ -404,7 +404,7 @@ export default function CopyShiftsModal({
                  {targetMode === 'specific' && (
                      <div className="border border-slate-200 dark:border-slate-800 rounded-md p-2 max-h-[200px] overflow-y-auto">
                         <div className="text-xs text-slate-500 mb-2 flex justify-between">
-                            <span>Select Employees</span>
+                            <span>{t('selectEmployees') || 'Select Employees'}</span>
                             <button 
                                 onClick={() => setTargetEmployeeIds(targetEmployeeIds.length === employees.length ? [] : employees.map(e => e.id))}
                                 className="text-blue-600 hover:underline"

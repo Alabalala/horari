@@ -60,7 +60,7 @@ export default function CreateScenarioModal({ isOpen, onClose, onCreate }: Creat
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-              placeholder="e.g., Next Week Plan"
+              placeholder={t('scenarioNamePlaceholder') || "e.g., Next Week Plan"}
             />
           </div>
 

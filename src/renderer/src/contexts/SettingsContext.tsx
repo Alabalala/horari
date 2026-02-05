@@ -257,7 +257,21 @@ const translations = {
     startDate: 'Start Date',
     endDate: 'End Date',
     cloneFromLiveHelp: 'Copies all shifts from the live roster within the selected date range to this draft scenario.',
-    monthClosureDisabledInDraft: 'Month closure is disabled in Draft Mode'
+    monthClosureDisabledInDraft: 'Month closure is disabled in Draft Mode',
+    createScenario: 'Create Draft Scenario',
+    clickToEditTarget: 'Click bar to edit target',
+    calendar: 'Calendar',
+    selectEmployee: 'Select Employee',
+    numberOfDays: 'Number of Days',
+    daysToHoursNote: 'Creates daily entries based on weekly average.',
+    bankHoliday: 'Bank Holiday',
+    sickLeave: 'Sick Leave',
+    publishScenarioConfirm: 'Are you sure you want to publish this scenario? This will overwrite the live roster for the affected period.',
+    deleteScenarioConfirm: 'Are you sure you want to delete this draft scenario? This action cannot be undone.',
+    publish: 'Publish',
+    create: 'Create',
+    creating: 'Creating...',
+    scenarioNamePlaceholder: 'e.g., Next Week Plan'
   },
   es: {
     dashboard: 'Panel de control',
@@ -520,6 +534,20 @@ const translations = {
     restore: 'Restaurar',
     restoreBackup: 'Restaurar copia de seguridad',
     restoreWarning: 'ADVERTENCIA: Esto sobrescribirá todos los datos actuales con los datos de la copia de seguridad. Esta acción no se puede deshacer. ¿Estás seguro de que quieres continuar?',
+    createScenario: 'Crear Escenario Borrador',
+    clickToEditTarget: 'Haz clic en la barra para editar el objetivo',
+    calendar: 'Calendario',
+    selectEmployee: 'Seleccionar Empleado',
+    numberOfDays: 'Número de Días',
+    daysToHoursNote: 'Crea entradas diarias basadas en el promedio semanal.',
+    bankHoliday: 'Festivo',
+    sickLeave: 'Baja Médica',
+    publishScenarioConfirm: '¿Estás seguro de que quieres publicar este escenario? Esto sobrescribirá el horario principal para el período afectado.',
+    deleteScenarioConfirm: '¿Estás seguro de que quieres eliminar este borrador? Esta acción no se puede deshacer.',
+    publish: 'Publicar',
+    create: 'Crear',
+    creating: 'Creando...',
+    scenarioNamePlaceholder: 'ej. Plan de la próxima semana',
     // End of Spanish translations
   }
 }

@@ -1,5 +1,25 @@
 [
   {
+    "version": "1.0.6",
+    "date": "2026-01-29",
+    "notes": {
+      "en": [
+        "Fixed 'Pay Off' modal blank screen issue.",
+        "Fixed crash in Reports section when viewing balance adjustments.",
+        "Fixed missing translations (Absence types, Sidebar Calendar, Employee Status).",
+        "Improved absence input validation (1-30 days range).",
+        "Added 'Show Sidebar Calendar' toggle in Settings."
+      ],
+      "es": [
+        "Corregido el error de pantalla en blanco en el modal 'Liquidar'.",
+        "Corregido cierre inesperado en la sección de Informes al ver ajustes de saldo.",
+        "Corregidas traducciones faltantes (Tipos de ausencia, Calendario lateral, Estado del empleado).",
+        "Mejorada la validación de entrada de ausencias (rango de 1-30 días).",
+        "Añadida la opción 'Mostrar calendario lateral' en Configuración."
+      ]
+    }
+  },
+  {
     "version": "1.0.5",
     "date": "2026-01-29",
     "notes": {

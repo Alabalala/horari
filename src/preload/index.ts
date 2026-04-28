@@ -22,7 +22,8 @@ const api = {
     getAll: (startDate, endDate, scenarioId) => ipcRenderer.invoke('get-all-shifts', { startDate, endDate, scenarioId }),
     add: (shift) => ipcRenderer.invoke('add-shift', shift),
     update: (id, shift) => ipcRenderer.invoke('update-shift', { id, ...shift }),
-    delete: (id) => ipcRenderer.invoke('delete-shift', id)
+    delete: (id) => ipcRenderer.invoke('delete-shift', id),
+    deleteByDateRange: (startDate, endDate, scenarioId) => ipcRenderer.invoke('delete-shifts-by-date-range', { startDate, endDate, scenarioId })
   },
   scenarios: {
     getAll: () => ipcRenderer.invoke('get-scenarios'),

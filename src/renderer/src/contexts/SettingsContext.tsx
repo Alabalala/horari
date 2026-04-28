@@ -271,7 +271,11 @@ const translations = {
     publish: 'Publish',
     create: 'Create',
     creating: 'Creating...',
-    scenarioNamePlaceholder: 'e.g., Next Week Plan'
+    scenarioNamePlaceholder: 'e.g., Next Week Plan',
+    deleteWeek: 'Delete Week',
+    deleteMonth: 'Delete Month',
+    deleteWeekConfirm: 'Are you sure you want to delete all shifts for this week?',
+    deleteMonthConfirm: 'Are you sure you want to delete all shifts for this month?'
   },
   es: {
     dashboard: 'Panel de control',
@@ -548,6 +552,10 @@ const translations = {
     create: 'Crear',
     creating: 'Creando...',
     scenarioNamePlaceholder: 'ej. Plan de la próxima semana',
+    deleteWeek: 'Eliminar semana',
+    deleteMonth: 'Eliminar mes',
+    deleteWeekConfirm: '¿Estás seguro de que quieres eliminar todos los turnos de esta semana?',
+    deleteMonthConfirm: '¿Estás seguro de que quieres eliminar todos los turnos de este mes?',
     // End of Spanish translations
   }
 }

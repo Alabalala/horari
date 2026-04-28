@@ -14,6 +14,7 @@ import {
   addShift,
   updateShift,
   deleteShift,
+  deleteShiftsByDateRange,
   getEmployee,
   updateEmployeeOrder,
   getSettings,
@@ -245,6 +246,9 @@ app.whenReady().then(() => {
     })
     ipcMain.handle('delete-shift', (_, id) => {
       return deleteShift(id)
+    })
+    ipcMain.handle('delete-shifts-by-date-range', (_, { startDate, endDate, scenarioId }) => {
+      return deleteShiftsByDateRange(startDate, endDate, scenarioId)
     })
 
     // Scenarios

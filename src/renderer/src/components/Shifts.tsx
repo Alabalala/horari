@@ -869,6 +869,53 @@ export default function Shifts(): React.JSX.Element {
     return monthlyClosures.some(c => c.monthId === monthId && c.status === 'LOCKED')
   }
 
+  const handleDeleteWeekOrMonth = () => {
+    const monthId = format(currentDate, 'yyyy-MM')
+    if (isMonthLocked(currentDate)) {
+      alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
+      return
+    }
+
+    let startDate: Date
+    let endDate: Date
+    let periodName: string
+
+    if (view === 'week') {
+      startDate = startOfDay(startOfWeek(currentDate, { weekStartsOn: 1 }))
+      endDate = endOfDay(endOfWeek(currentDate, { weekStartsOn: 1 }))
+      periodName = `${format(startDate, 'MMM d', { locale: dateLocale })} - ${format(endDate, 'MMM d, yyyy', { locale: dateLocale })}`
+    } else {
+      startDate = startOfDay(startOfMonth(currentDate))
+      endDate = endOfDay(endOfMonth(currentDate))
+      periodName = format(currentDate, 'MMMM yyyy', { locale: dateLocale })
+    }
+
+    setConfirmState({
+      isOpen: true,
+      title: view === 'week' ? (t('deleteWeek') || 'Delete Week') : (t('deleteMonth') || 'Delete Month'),
+      message: view === 'week'
+        ? `${t('deleteWeekConfirm') || 'Are you sure you want to delete all shifts for this week?'} (${periodName})`
+        : `${t('deleteMonthConfirm') || 'Are you sure you want to delete all shifts for this month?'} (${periodName})`,
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          console.log('Deleting shifts:', { startDate: startDate.toISOString(), endDate: endDate.toISOString(), scenarioId: activeScenario?.id || null })
+          const result = await window.api.shifts.deleteByDateRange(
+            startDate.toISOString(),
+            endDate.toISOString(),
+            activeScenario?.id || null
+          )
+          console.log('Delete result:', result)
+        } catch (error) {
+          console.error('Failed to delete shifts:', error)
+        } finally {
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+          fetchData()
+        }
+      }
+    })
+  }
+
   const openAddModal = (employeeId: number, date: Date): void => {
     if (isMonthLocked(date)) {
         alert(t('monthClosedMessage') || "This month is closed. Unlock it to make changes.")
@@ -1323,6 +1370,16 @@ export default function Shifts(): React.JSX.Element {
             </button>
           )}
           <StatsVisibilityMenu />
+          {(view === 'week' || view === 'month') && !isMonthLocked(currentDate) && (
+            <button
+              onClick={handleDeleteWeekOrMonth}
+              className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors text-sm font-medium text-red-700 dark:text-red-300"
+              title={view === 'week' ? (t('deleteWeek') || 'Delete Week') : (t('deleteMonth') || 'Delete Month')}
+            >
+              <Trash2 className="h-4 w-4" />
+              {view === 'week' ? (t('deleteWeek') || 'Delete Week') : (t('deleteMonth') || 'Delete Month')}
+            </button>
+          )}
           {view === 'week' && (
             <button
               onClick={() => setIsPrintWeeklyModalOpen(true)}

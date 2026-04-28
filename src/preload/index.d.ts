@@ -61,6 +61,7 @@ declare global {
           }
         ) => Promise<void>
         delete: (id: number) => Promise<void>
+        deleteByDateRange: (startDate: string, endDate: string, scenarioId?: string | null) => Promise<void>
       }
       scenarios: {
         getAll: () => Promise<unknown[]>

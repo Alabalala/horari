@@ -433,6 +433,25 @@ export function deleteShift(id: number): Database.RunResult {
   return stmt.run(id)
 }
 
+export function deleteShiftsByDateRange(startDate: string, endDate: string, scenarioId?: string | null): Database.RunResult {
+  console.log('deleteShiftsByDateRange called:', { startDate, endDate, scenarioId })
+  let query = 'DELETE FROM shifts WHERE startTime <= ? AND endTime >= ?'
+  const params: (string | null)[] = [endDate, startDate]
+
+  if (scenarioId) {
+    query += ' AND (scenarioId = ? OR scenarioId IS NULL)'
+    params.push(scenarioId)
+  } else {
+    query += ' AND scenarioId IS NULL'
+  }
+
+  console.log('Query:', query, 'Params:', params)
+  const stmt = db.prepare(query)
+  const result = stmt.run(...params)
+  console.log('Delete result:', result)
+  return result
+}
+
 // Monthly Closures operations
 export function getMonthlyClosure(monthId: string): MonthlyClosure | undefined {
   return db.prepare('SELECT * FROM monthly_closures WHERE monthId = ?').get(monthId) as MonthlyClosure | undefined

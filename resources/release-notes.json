@@ -1,5 +1,19 @@
 [
   {
+    "version": "1.0.9",
+    "date": "2026-08-17",
+    "notes": {
+      "en": [
+        "Balance Breakdown: added an 'As of date' filter to see the balance calculated only up to a given day, instead of always the whole month.",
+        "Balance Breakdown: weeks are now collapsed by default, click a week to expand its days."
+      ],
+      "es": [
+        "Desglose del saldo: añadido un filtro 'Hasta la fecha' para ver el saldo calculado solo hasta un día concreto, en vez de siempre el mes completo.",
+        "Desglose del saldo: las semanas ahora aparecen recogidas por defecto, haz clic en una semana para ver sus días."
+      ]
+    }
+  },
+  {
     "version": "1.0.8",
     "date": "2026-08-17",
     "notes": {

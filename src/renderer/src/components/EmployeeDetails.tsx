@@ -23,7 +23,7 @@ import { StatsVisibilityMenu } from './StatsVisibilityMenu'
 import ShiftContextMenu from './ShiftContextMenu'
 import ConfirmModal from './ConfirmModal'
 import CopyShiftsModal from './CopyShiftsModal'
-import { calculateMonthStats, calculateEmployeeBreakdown, MonthlyClosure, EmployeeBreakdown } from '../lib/balanceUtils'
+import { calculateMonthStats, calculateEmployeeBreakdown, MonthlyClosure } from '../lib/balanceUtils'
 import { BalanceAdjustment, Employee, Shift } from '../types'
 
 export default function EmployeeDetails(): React.JSX.Element {
@@ -189,26 +189,49 @@ export default function EmployeeDetails(): React.JSX.Element {
     }
   }
 
-  const [breakdown, setBreakdown] = useState<EmployeeBreakdown | null>(null)
+  const [breakdownInputs, setBreakdownInputs] = useState<{
+      closures: MonthlyClosure[]
+      allShifts: Shift[]
+      overrides: Record<string, Record<number, number>>
+      adjs: BalanceAdjustment[]
+  } | null>(null)
   const [breakdownLoading, setBreakdownLoading] = useState(false)
   const [showBreakdownModal, setShowBreakdownModal] = useState(false)
+  const [breakdownAsOfDate, setBreakdownAsOfDate] = useState('') // yyyy-MM-dd, empty = full month
+  const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
+
+  const breakdown = useMemo(() => {
+    if (!breakdownInputs || !employee) return null
+    return calculateEmployeeBreakdown(
+        currentDate,
+        employee,
+        breakdownInputs.allShifts,
+        breakdownInputs.closures,
+        breakdownInputs.overrides,
+        breakdownInputs.adjs,
+        breakdownAsOfDate ? parseISO(breakdownAsOfDate) : undefined
+    )
+  }, [breakdownInputs, employee, currentDate, breakdownAsOfDate])
+
+  const toggleWeekExpanded = (weekStart: string): void => {
+    setExpandedWeeks(prev => {
+        const next = new Set(prev)
+        if (next.has(weekStart)) next.delete(weekStart)
+        else next.add(weekStart)
+        return next
+    })
+  }
 
   const openBreakdownModal = async () => {
     if (!employee) return
     setShowBreakdownModal(true)
     setBreakdownLoading(true)
+    setBreakdownAsOfDate('')
+    setExpandedWeeks(new Set())
     try {
         const inputs = await fetchBalanceInputs()
         if (!inputs) return
-        const result = calculateEmployeeBreakdown(
-            currentDate,
-            employee,
-            inputs.allShifts,
-            inputs.closures,
-            inputs.overrides,
-            inputs.adjs
-        )
-        setBreakdown(result)
+        setBreakdownInputs(inputs)
     } catch (error) {
         console.error("Failed to fetch balance breakdown", error)
     } finally {
@@ -1707,13 +1730,35 @@ export default function EmployeeDetails(): React.JSX.Element {
   {showBreakdownModal && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
         <div className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-2xl">
-            <div className="mb-4 flex items-center justify-between shrink-0">
+            <div className="mb-2 flex items-center justify-between shrink-0">
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                     {t('balanceBreakdown') || 'Balance Breakdown'} — {format(currentDate, 'MMMM yyyy', { locale: dateLocale })}
                 </h2>
                 <button onClick={() => setShowBreakdownModal(false)} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
                     <X className="h-5 w-5" />
                 </button>
+            </div>
+
+            <div className="mb-4 flex items-center gap-2 shrink-0">
+                <label className="text-xs text-slate-500 dark:text-slate-400">
+                    {t('asOfDate') || 'As of date'}
+                </label>
+                <input
+                    type="date"
+                    value={breakdownAsOfDate}
+                    min={format(startOfMonth(currentDate), 'yyyy-MM-dd')}
+                    max={format(endOfMonth(currentDate), 'yyyy-MM-dd')}
+                    onChange={(e) => setBreakdownAsOfDate(e.target.value)}
+                    className="text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2 py-1 text-slate-900 dark:text-white"
+                />
+                {breakdownAsOfDate && (
+                    <button
+                        onClick={() => setBreakdownAsOfDate('')}
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                        {t('fullMonth') || 'Full month'}
+                    </button>
+                )}
             </div>
 
             {breakdownLoading || !breakdown ? (
@@ -1759,10 +1804,17 @@ export default function EmployeeDetails(): React.JSX.Element {
                             {format(currentDate, 'MMMM yyyy', { locale: dateLocale })}
                         </div>
                         <div className="space-y-3">
-                            {breakdown.currentMonth.weeks.map(w => (
+                            {breakdown.currentMonth.weeks.map(w => {
+                                const isExpanded = expandedWeeks.has(w.weekStart)
+                                return (
                                 <div key={w.weekStart} className="rounded border border-slate-200 dark:border-slate-800 overflow-hidden">
-                                    <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-900/50 text-sm">
-                                        <span className="font-medium text-slate-700 dark:text-slate-300 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => toggleWeekExpanded(w.weekStart)}
+                                        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-900/50 text-sm hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors"
+                                    >
+                                        <span className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300 shrink-0">
+                                            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !isExpanded && "-rotate-90")} />
                                             {t('weekOf') || 'Week of'} {format(parseISO(w.weekStart), 'MMM d', { locale: dateLocale })}
                                         </span>
                                         <span className="text-slate-500 dark:text-slate-500 text-xs">
@@ -1771,24 +1823,27 @@ export default function EmployeeDetails(): React.JSX.Element {
                                         <span className={cn("font-semibold shrink-0", w.diff >= 0 ? "text-emerald-600" : "text-red-600")}>
                                             {w.diff > 0 ? '+' : ''}{w.diff.toFixed(1)}h
                                         </span>
-                                    </div>
-                                    <div className="divide-y divide-slate-100 dark:divide-slate-900">
-                                        {w.days.map(d => (
-                                            <div key={d.date} className="flex items-center justify-between gap-2 px-3 py-1 text-xs">
-                                                <span className="text-slate-500 dark:text-slate-400 w-20 shrink-0 capitalize">
-                                                    {format(parseISO(d.date), 'EEE d', { locale: dateLocale })}
-                                                </span>
-                                                <span className="text-slate-400 dark:text-slate-500">
-                                                    {t('contract') || 'contract'} {d.target.toFixed(1)}h · {t('worked') || 'worked'} {d.actual.toFixed(1)}h
-                                                </span>
-                                                <span className={cn("font-medium shrink-0", d.diff >= 0 ? "text-emerald-600" : "text-red-600")}>
-                                                    {d.diff > 0 ? '+' : ''}{d.diff.toFixed(1)}h
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
+                                    </button>
+                                    {isExpanded && (
+                                        <div className="divide-y divide-slate-100 dark:divide-slate-900">
+                                            {w.days.map(d => (
+                                                <div key={d.date} className="flex items-center justify-between gap-2 px-3 py-1 text-xs">
+                                                    <span className="text-slate-500 dark:text-slate-400 w-20 shrink-0 capitalize">
+                                                        {format(parseISO(d.date), 'EEE d', { locale: dateLocale })}
+                                                    </span>
+                                                    <span className="text-slate-400 dark:text-slate-500">
+                                                        {t('contract') || 'contract'} {d.target.toFixed(1)}h · {t('worked') || 'worked'} {d.actual.toFixed(1)}h
+                                                    </span>
+                                                    <span className={cn("font-medium shrink-0", d.diff >= 0 ? "text-emerald-600" : "text-red-600")}>
+                                                        {d.diff > 0 ? '+' : ''}{d.diff.toFixed(1)}h
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
-                            ))}
+                                )
+                            })}
                         </div>
                     </div>
 

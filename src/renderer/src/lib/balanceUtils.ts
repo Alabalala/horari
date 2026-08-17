@@ -159,7 +159,10 @@ export const calculateEmployeeBreakdown = (
   allShifts: Shift[],
   monthlyClosures: MonthlyClosure[],
   weeklyHoursOverrides: Record<string, Record<number, number>>,
-  balanceAdjustments: BalanceAdjustment[] = []
+  balanceAdjustments: BalanceAdjustment[] = [],
+  // Cut the target month's detail off at this date (e.g. "how do we stand as of today"),
+  // instead of always counting the whole month including days that haven't happened yet.
+  asOfDate?: Date
 ): EmployeeBreakdown => {
   const monthId = format(targetMonth, 'yyyy-MM')
   const prevMonthDate = subMonths(targetMonth, 1)
@@ -234,7 +237,8 @@ export const calculateEmployeeBreakdown = (
   // Week-by-week / day-by-day detail for the target month
   const mStart = startOfMonth(targetMonth)
   const mEnd = endOfMonth(targetMonth)
-  const daysInMonth = eachDayOfInterval({ start: mStart, end: mEnd })
+  const effectiveEnd = asOfDate ? (asOfDate < mStart ? mStart : asOfDate > mEnd ? mEnd : asOfDate) : mEnd
+  const daysInMonth = eachDayOfInterval({ start: mStart, end: effectiveEnd })
 
   const weeksMap = new Map<string, DayBreakdown[]>()
 

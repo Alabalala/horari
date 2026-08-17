@@ -701,7 +701,7 @@ export default function Shifts(): React.JSX.Element {
             if (!employee) return
 
             // Calculate daily average hours
-            const dailyHours = employee.defaultHours / 7
+            const dailyHours = (employee.defaultHours ?? 40) / 7
             // Start at 9:00 AM default for absence visual
             const startTimeStr = "09:00"
             const startHour = 9
@@ -1084,7 +1084,7 @@ export default function Shifts(): React.JSX.Element {
         
         const weekStr = weekStart.toISOString()
         const override = weeklyHoursOverrides[weekStr]?.[emp.id]
-        const baseWeeklyHours = override !== undefined ? override : (emp.defaultHours || 40)
+        const baseWeeklyHours = override !== undefined ? override : (emp.defaultHours ?? 40)
         
         let agreed = baseWeeklyHours
 

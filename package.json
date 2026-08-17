@@ -1,6 +1,6 @@
 {
   "name": "horari",
-  "version": "1.0.6",
+  "version": "1.0.8",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "alvaroalarcon.com",
@@ -24,7 +24,7 @@
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
     "release": "pnpm version-prompt && pnpm dist",
-  "version-prompt": "echo 'Did you update the version in package.json? (y/n)' && read ans && [ \"$ans\" == \"y\" ]"
+    "version-prompt": "echo 'Did you update the version in package.json? (y/n)' && read ans && [ \"$ans\" == \"y\" ]"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

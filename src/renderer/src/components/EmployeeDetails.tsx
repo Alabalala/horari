@@ -23,7 +23,7 @@ import { StatsVisibilityMenu } from './StatsVisibilityMenu'
 import ShiftContextMenu from './ShiftContextMenu'
 import ConfirmModal from './ConfirmModal'
 import CopyShiftsModal from './CopyShiftsModal'
-import { calculateMonthStats, MonthlyClosure } from '../lib/balanceUtils'
+import { calculateMonthStats, calculateEmployeeBreakdown, MonthlyClosure, EmployeeBreakdown } from '../lib/balanceUtils'
 import { BalanceAdjustment, Employee, Shift } from '../types'
 
 export default function EmployeeDetails(): React.JSX.Element {
@@ -83,84 +83,97 @@ export default function EmployeeDetails(): React.JSX.Element {
     return closure?.status === 'LOCKED'
   }
 
+  // Shared inputs needed by any balance calculation (live total or breakdown): all shifts
+  // and weekly-hours overrides covering the gap from the last closed month to currentDate.
+  const fetchBalanceInputs = async (): Promise<{
+    closures: MonthlyClosure[]
+    allShifts: Shift[]
+    overrides: Record<string, Record<number, number>>
+    adjs: BalanceAdjustment[]
+  } | null> => {
+    if (!id || !employee) return null
+
+    // 1. Ensure closures are up to date
+    const closures = await window.api.monthlyClosures.getAll() as MonthlyClosure[]
+    setMonthlyClosures(closures)
+
+    // 2. Determine fetch range
+    // Find the earliest relevant date (start of first closed month, or 2020)
+    const sortedClosures = [...closures]
+        .filter(c => c.status === 'LOCKED')
+        .sort((a, b) => a.monthId.localeCompare(b.monthId))
+
+    let startStr = '2020-01-01T00:00:00.000Z'
+    if (sortedClosures.length > 0) {
+        startStr = startOfMonth(parseISO(sortedClosures[0].monthId + '-01')).toISOString()
+    }
+
+    const endStr = endOfMonth(currentDate).toISOString()
+
+    // 3. Fetch all shifts
+    const empId = Number(id)
+    const allShifts = await window.api.shifts.get(empId, startStr, endStr) as Shift[]
+
+    // 4. Fetch overrides for the calculation period (Gap + Current)
+    // We only need overrides from the *latest* closure onwards,
+    // because previous balances are read from closures.
+    const latestClosure = [...closures]
+        .filter(c => c.status === 'LOCKED' && c.monthId < format(currentDate, 'yyyy-MM'))
+        .sort((a, b) => b.monthId.localeCompare(a.monthId))[0]
+
+    let calcStart = latestClosure
+        ? startOfMonth(addDays(parseISO(latestClosure.monthId + '-01'), 32))
+        : parseISO(startStr)
+
+    const weeksToFetch: string[] = []
+    let iter = startOfWeek(calcStart, { weekStartsOn: 1 })
+    const endIter = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 })
+
+    // Safety limit to avoid infinite loops
+    let safety = 0
+    while (iter <= endIter && safety < 1000) {
+        weeksToFetch.push(iter.toISOString())
+        iter = addDays(iter, 7)
+        safety++
+    }
+
+    const overrides: Record<string, Record<number, number>> = {}
+    await Promise.all(weeksToFetch.map(async (weekStr) => {
+        try {
+            const val = await window.api.employees.getWeeklyHours(empId, weekStr)
+            if (typeof val === 'number') {
+                if (!overrides[weekStr]) overrides[weekStr] = {}
+                overrides[weekStr][empId] = val
+            }
+        } catch (e) {
+            console.warn('Failed to fetch weekly hours for', weekStr, e)
+        }
+    }))
+
+    // 5. Fetch Adjustments
+    const adjs = await window.api.balanceAdjustments.get(empId) as BalanceAdjustment[]
+    setBalanceAdjustments(adjs)
+
+    return { closures, allShifts: allShifts || [], overrides, adjs: adjs || [] }
+  }
+
   const fetchLiveBalance = async () => {
     if (!id || !employee) return
 
     try {
-        // 1. Ensure closures are up to date
-        const closures = await window.api.monthlyClosures.getAll() as MonthlyClosure[]
-        setMonthlyClosures(closures)
+        const inputs = await fetchBalanceInputs()
+        if (!inputs) return
 
-        // 2. Determine fetch range
-        // Find the earliest relevant date (start of first closed month, or 2020)
-        const sortedClosures = [...closures]
-            .filter(c => c.status === 'LOCKED')
-            .sort((a, b) => a.monthId.localeCompare(b.monthId))
-        
-        let startStr = '2020-01-01T00:00:00.000Z'
-        if (sortedClosures.length > 0) {
-            startStr = startOfMonth(parseISO(sortedClosures[0].monthId + '-01')).toISOString()
-        }
-
-        const endStr = endOfMonth(currentDate).toISOString()
-        
-        // 3. Fetch all shifts
-        // Ensure ID is a number
-        const empId = Number(id)
-        const allShifts = await window.api.shifts.get(empId, startStr, endStr) as Shift[]
-
-        // 4. Fetch overrides for the calculation period (Gap + Current)
-        // We only need overrides from the *latest* closure onwards, 
-        // because previous balances are read from closures.
-        const latestClosure = [...closures]
-            .filter(c => c.status === 'LOCKED' && c.monthId < format(currentDate, 'yyyy-MM'))
-            .sort((a, b) => b.monthId.localeCompare(a.monthId))[0]
-        
-        let calcStart = latestClosure 
-            ? startOfMonth(addDays(parseISO(latestClosure.monthId + '-01'), 32))
-            : parseISO(startStr)
-            
-        const weeksToFetch: string[] = []
-        let iter = startOfWeek(calcStart, { weekStartsOn: 1 })
-        const endIter = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 })
-        
-        // Safety limit to avoid infinite loops
-        let safety = 0
-        while (iter <= endIter && safety < 1000) {
-            weeksToFetch.push(iter.toISOString())
-            iter = addDays(iter, 7)
-            safety++
-        }
-        
-        const overrides: Record<string, Record<number, number>> = {}
-        await Promise.all(weeksToFetch.map(async (weekStr) => {
-            try {
-                const val = await window.api.employees.getWeeklyHours(empId, weekStr)
-                if (typeof val === 'number') {
-                    if (!overrides[weekStr]) overrides[weekStr] = {}
-                    overrides[weekStr][empId] = val
-                }
-            } catch (e) {
-                console.warn('Failed to fetch weekly hours for', weekStr, e)
-            }
-        }))
-
-        // 5. Fetch Adjustments
-        const adjs = await window.api.balanceAdjustments.get(empId) as BalanceAdjustment[]
-        setBalanceAdjustments(adjs)
-
-        // 6. Calculate
         const stats = calculateMonthStats(
             currentDate,
             [employee],
-            allShifts || [],
-            closures,
-            overrides,
-            adjs || []
+            inputs.allShifts,
+            inputs.closures,
+            inputs.overrides,
+            inputs.adjs
         )
 
         if (stats && stats[employee.id]) {
-            // console.log('Live balance calculated:', stats[employee.id].accumulatedBalance)
             setAccumulatedBalance(stats[employee.id].accumulatedBalance)
         } else {
             // Fallback if calculation fails to return entry for employee
@@ -173,6 +186,33 @@ export default function EmployeeDetails(): React.JSX.Element {
         if (employee) {
             setAccumulatedBalance(employee.initialBalance || 0)
         }
+    }
+  }
+
+  const [breakdown, setBreakdown] = useState<EmployeeBreakdown | null>(null)
+  const [breakdownLoading, setBreakdownLoading] = useState(false)
+  const [showBreakdownModal, setShowBreakdownModal] = useState(false)
+
+  const openBreakdownModal = async () => {
+    if (!employee) return
+    setShowBreakdownModal(true)
+    setBreakdownLoading(true)
+    try {
+        const inputs = await fetchBalanceInputs()
+        if (!inputs) return
+        const result = calculateEmployeeBreakdown(
+            currentDate,
+            employee,
+            inputs.allShifts,
+            inputs.closures,
+            inputs.overrides,
+            inputs.adjs
+        )
+        setBreakdown(result)
+    } catch (error) {
+        console.error("Failed to fetch balance breakdown", error)
+    } finally {
+        setBreakdownLoading(false)
     }
   }
 
@@ -319,7 +359,7 @@ export default function EmployeeDetails(): React.JSX.Element {
     const weeks = eachWeekOfInterval({ start: monthStart, end: monthEnd }, { weekStartsOn: 1 })
     
     let totalAgreed = 0
-    const defaultWeekly = employee.defaultHours || 40
+    const defaultWeekly = employee.defaultHours ?? 40
     await Promise.all(weeks.map(async (weekStart) => {
         const weekStr = weekStart.toISOString()
         const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 })
@@ -456,7 +496,7 @@ export default function EmployeeDetails(): React.JSX.Element {
     try {
         if (formData.type === 'absence') {
             // Calculate daily average hours
-            const dailyHours = (employee.defaultHours || 40) / 7
+            const dailyHours = (employee.defaultHours ?? 40) / 7
             // Start at 9:00 AM default for absence visual
             const startTimeStr = "09:00"
             const startHour = 9
@@ -785,14 +825,18 @@ export default function EmployeeDetails(): React.JSX.Element {
                 </>
               )}
 
-              <div className="text-center group relative">
+              <div
+                className="text-center group relative cursor-pointer"
+                onClick={openBreakdownModal}
+                title={t('viewBreakdown') || 'View breakdown'}
+              >
                 <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   {t('accumulatedBalance') || 'Total Balance'}
                 </div>
                 <div className="mt-0.5">
                    <div
                       className={cn(
-                        'text-sm font-semibold',
+                        'text-sm font-semibold underline decoration-dotted underline-offset-2',
                         accumulatedBalance >= 0
                           ? 'text-emerald-600 dark:text-emerald-400'
                           : 'text-red-600 dark:text-red-400'
@@ -816,14 +860,18 @@ export default function EmployeeDetails(): React.JSX.Element {
               </div>
               <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 stat-separator" />
               
-              <div className="text-center group relative">
+              <div
+                className="text-center group relative cursor-pointer"
+                onClick={openBreakdownModal}
+                title={t('viewBreakdown') || 'View breakdown'}
+              >
                 <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                   {t('accumulatedBalance') || 'Total Balance'}
                 </div>
                 <div className="mt-0.5 flex items-center justify-center gap-2">
                    <div
                       className={cn(
-                        'text-sm font-semibold',
+                        'text-sm font-semibold underline decoration-dotted underline-offset-2',
                         accumulatedBalance >= 0
                           ? 'text-emerald-600 dark:text-emerald-400'
                           : 'text-red-600 dark:text-red-400'
@@ -1651,6 +1699,125 @@ export default function EmployeeDetails(): React.JSX.Element {
                     ))
                 )}
             </div>
+        </div>
+      </div>
+  )}
+
+  {/* Breakdown Modal */}
+  {showBreakdownModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between shrink-0">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    {t('balanceBreakdown') || 'Balance Breakdown'} — {format(currentDate, 'MMMM yyyy', { locale: dateLocale })}
+                </h2>
+                <button onClick={() => setShowBreakdownModal(false)} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+                    <X className="h-5 w-5" />
+                </button>
+            </div>
+
+            {breakdownLoading || !breakdown ? (
+                <div className="text-center text-slate-500 dark:text-slate-400 py-8">
+                    {t('loading') || 'Loading...'}
+                </div>
+            ) : (
+                <div className="overflow-y-auto space-y-4 pr-2">
+                    <div className="flex items-center justify-between rounded border border-slate-200 dark:border-slate-800 p-3 bg-slate-50 dark:bg-slate-900/50">
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            {t('startingBalance') || 'Balance carried from previous months'}
+                        </span>
+                        <span className={cn("text-sm font-bold", breakdown.startingBalance >= 0 ? "text-emerald-600" : "text-red-600")}>
+                            {breakdown.startingBalance > 0 ? '+' : ''}{breakdown.startingBalance.toFixed(1)}h
+                        </span>
+                    </div>
+
+                    {breakdown.priorMonths.length > 0 && (
+                        <div>
+                            <div className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">
+                                {t('priorMonths') || 'Previous months'}
+                            </div>
+                            <div className="space-y-1">
+                                {breakdown.priorMonths.map(m => (
+                                    <div key={m.monthId} className="flex items-center justify-between text-sm px-2 py-1 rounded hover:bg-slate-50 dark:hover:bg-slate-900/50">
+                                        <span className="text-slate-600 dark:text-slate-400">
+                                            {format(parseISO(m.monthId + '-01'), 'MMMM yyyy', { locale: dateLocale })}
+                                        </span>
+                                        <span className="text-slate-500 dark:text-slate-500 text-xs">
+                                            {t('contract') || 'contract'} {m.target.toFixed(1)}h · {t('worked') || 'worked'} {m.actual.toFixed(1)}h
+                                        </span>
+                                        <span className={cn("font-semibold", m.diff >= 0 ? "text-emerald-600" : "text-red-600")}>
+                                            {m.diff > 0 ? '+' : ''}{m.diff.toFixed(1)}h
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <div>
+                        <div className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">
+                            {format(currentDate, 'MMMM yyyy', { locale: dateLocale })}
+                        </div>
+                        <div className="space-y-3">
+                            {breakdown.currentMonth.weeks.map(w => (
+                                <div key={w.weekStart} className="rounded border border-slate-200 dark:border-slate-800 overflow-hidden">
+                                    <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-900/50 text-sm">
+                                        <span className="font-medium text-slate-700 dark:text-slate-300 shrink-0">
+                                            {t('weekOf') || 'Week of'} {format(parseISO(w.weekStart), 'MMM d', { locale: dateLocale })}
+                                        </span>
+                                        <span className="text-slate-500 dark:text-slate-500 text-xs">
+                                            {t('contract') || 'contract'} {w.target.toFixed(1)}h · {t('worked') || 'worked'} {w.actual.toFixed(1)}h
+                                        </span>
+                                        <span className={cn("font-semibold shrink-0", w.diff >= 0 ? "text-emerald-600" : "text-red-600")}>
+                                            {w.diff > 0 ? '+' : ''}{w.diff.toFixed(1)}h
+                                        </span>
+                                    </div>
+                                    <div className="divide-y divide-slate-100 dark:divide-slate-900">
+                                        {w.days.map(d => (
+                                            <div key={d.date} className="flex items-center justify-between gap-2 px-3 py-1 text-xs">
+                                                <span className="text-slate-500 dark:text-slate-400 w-20 shrink-0 capitalize">
+                                                    {format(parseISO(d.date), 'EEE d', { locale: dateLocale })}
+                                                </span>
+                                                <span className="text-slate-400 dark:text-slate-500">
+                                                    {t('contract') || 'contract'} {d.target.toFixed(1)}h · {t('worked') || 'worked'} {d.actual.toFixed(1)}h
+                                                </span>
+                                                <span className={cn("font-medium shrink-0", d.diff >= 0 ? "text-emerald-600" : "text-red-600")}>
+                                                    {d.diff > 0 ? '+' : ''}{d.diff.toFixed(1)}h
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="rounded border border-slate-200 dark:border-slate-800 p-3 bg-slate-50 dark:bg-slate-900/50 space-y-1 text-sm">
+                        <div className="flex items-center justify-between">
+                            <span className="text-slate-600 dark:text-slate-400">{t('monthContract') || 'Month contract hours'}</span>
+                            <span className="font-medium text-slate-900 dark:text-white">{breakdown.currentMonth.target.toFixed(1)}h</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-slate-600 dark:text-slate-400">{t('monthWorked') || 'Month actual hours'}</span>
+                            <span className="font-medium text-slate-900 dark:text-white">{breakdown.currentMonth.actual.toFixed(1)}h</span>
+                        </div>
+                        {breakdown.currentMonth.adjustments !== 0 && (
+                            <div className="flex items-center justify-between">
+                                <span className="text-slate-600 dark:text-slate-400">{t('manualAdjustments') || 'Manual adjustments'}</span>
+                                <span className="font-medium text-slate-900 dark:text-white">
+                                    {breakdown.currentMonth.adjustments > 0 ? '+' : ''}{breakdown.currentMonth.adjustments.toFixed(1)}h
+                                </span>
+                            </div>
+                        )}
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-800">
+                            <span className="font-semibold text-slate-900 dark:text-white">{t('accumulatedBalance') || 'Total Balance'}</span>
+                            <span className={cn("font-bold", breakdown.accumulatedBalance >= 0 ? "text-emerald-600" : "text-red-600")}>
+                                {breakdown.accumulatedBalance > 0 ? '+' : ''}{breakdown.accumulatedBalance.toFixed(1)}h
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
       </div>
   )}

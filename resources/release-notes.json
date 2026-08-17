@@ -1,5 +1,19 @@
 [
   {
+    "version": "1.0.8",
+    "date": "2026-08-17",
+    "notes": {
+      "en": [
+        "Added a 'Balance Breakdown' view: click an employee's total balance to see exactly where it comes from, week by week and day by day.",
+        "Fixed an issue where employees with a 0-hour weekly contract could show an incorrect 40h target instead of 0h."
+      ],
+      "es": [
+        "Añadido el 'Desglose del saldo': haz clic en el saldo total de un empleado para ver exactamente de dónde viene, semana a semana y día a día.",
+        "Corregido un error por el que empleados con un contrato de 0 horas semanales podían mostrar un objetivo incorrecto de 40h en vez de 0h."
+      ]
+    }
+  },
+  {
     "version": "1.0.6",
     "date": "2026-01-29",
     "notes": {

@@ -111,6 +111,7 @@ declare global {
         create: () => Promise<{ filename: string; date: string; size: number }>
         list: () => Promise<Array<{ filename: string; date: string; size: number }>>
         restore: (filename: string) => Promise<void>
+        exportDb: () => Promise<{ success?: boolean; filePath?: string; canceled?: boolean }>
       }
     }
   }

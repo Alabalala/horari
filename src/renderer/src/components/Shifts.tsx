@@ -211,6 +211,7 @@ export default function Shifts(): React.JSX.Element {
   
   // Weekly Hours Overrides State
   const [weeklyHoursOverrides, setWeeklyHoursOverrides] = useState<Record<string, Record<number, number>>>({})
+  const [balanceAdjustments, setBalanceAdjustments] = useState<BalanceAdjustment[]>([])
   const [weeklyHoursModal, setWeeklyHoursModal] = useState<{
     isOpen: boolean
     employeeId: number
@@ -305,8 +306,10 @@ export default function Shifts(): React.JSX.Element {
       let endStr: string | undefined
 
       if (view === 'week' || view === 'month') {
-        const viewStart = view === 'month' ? startOfMonth(currentDate) : startOfWeek(currentDate, { weekStartsOn: 1 })
-        
+        // Always fetch the whole month, even in Week view: calculateMonthStats needs every
+        // shift in the month to compute an accurate balance, not just the visible week.
+        const viewStart = startOfMonth(currentDate)
+
         // Always fetch at least the current view range to ensure visibility
         const viewStartStr = viewStart.toISOString()
         
@@ -339,13 +342,8 @@ export default function Shifts(): React.JSX.Element {
         // So startStr = start of Closed Month. This is correct.
 
 
-        // End date: End of the current view interval
-        if (view === 'week') {
-            endStr = endOfWeek(currentDate, { weekStartsOn: 1 }).toISOString()
-        } else {
-             // For month view, ensure we cover the whole month
-             endStr = endOfMonth(currentDate).toISOString()
-        }
+        // End date: always the end of the month (see viewStart comment above)
+        endStr = endOfMonth(currentDate).toISOString()
       } else {
         // Day view: Optimize to fetch only relevant days? 
         // Or just fetch the day.
@@ -364,9 +362,10 @@ export default function Shifts(): React.JSX.Element {
       // 4. Fetch Weekly Hours (unchanged logic)
       const overrides: Record<string, Record<number, number>> = {}
       if (view === 'month' || view === 'week') {
-        const rangeStart = view === 'month' ? startOfMonth(currentDate) : startOfWeek(currentDate, { weekStartsOn: 1 })
-        const rangeEnd = view === 'month' ? endOfMonth(currentDate) : endOfWeek(currentDate, { weekStartsOn: 1 })
-        
+        // Whole month, same reasoning as the shift fetch above: monthStats needs every week's override.
+        const rangeStart = startOfMonth(currentDate)
+        const rangeEnd = endOfMonth(currentDate)
+
         const weeks = eachWeekOfInterval({ start: rangeStart, end: rangeEnd }, { weekStartsOn: 1 })
         await Promise.all(weeks.map(async (weekStart) => {
              const weekStr = weekStart.toISOString()
@@ -383,6 +382,16 @@ export default function Shifts(): React.JSX.Element {
       }
       setWeeklyHoursOverrides(overrides)
 
+      // 5. Fetch balance adjustments so roster stats match the employee detail page
+      if (view === 'month' || view === 'week') {
+        try {
+          const adjustments = await window.api.balanceAdjustments.get()
+          setBalanceAdjustments(adjustments as BalanceAdjustment[])
+        } catch (e) {
+          console.error('Failed to fetch balance adjustments', e)
+        }
+      }
+
     } catch (error) {
       console.error('Failed to fetch data:', error)
       setError(error instanceof Error ? error.message : 'Failed to fetch data')
@@ -395,10 +404,14 @@ export default function Shifts(): React.JSX.Element {
     fetchData()
   }, [currentDate, view, activeScenario])
 
+  // Match Dashboard: inactive/terminated employees don't show in the roster, even if they
+  // have historical shifts (those remain visible from the employee's own detail page).
+  const activeEmployees = useMemo(() => employees.filter((e) => e.status === 'Active'), [employees])
+
   // Group employees by department
   const groupedEmployees = useMemo(() => {
-    let filtered = employees
-    
+    let filtered = activeEmployees
+
     if (search) {
       const lowerSearch = search.toLowerCase()
       filtered = filtered.filter(
@@ -423,12 +436,12 @@ export default function Shifts(): React.JSX.Element {
       groups[emp.department].push(emp)
     })
     return groups
-  }, [employees, search, departmentFilter])
+  }, [activeEmployees, search, departmentFilter])
 
   const departments = useMemo(() => {
-    const depts = new Set(employees.map((e) => e.department))
+    const depts = new Set(activeEmployees.map((e) => e.department))
     return Array.from(depts).sort()
-  }, [employees])
+  }, [activeEmployees])
 
   const days = useMemo(() => {
     if (view === 'day') return [currentDate]
@@ -1050,20 +1063,22 @@ export default function Shifts(): React.JSX.Element {
 
   const getShiftDuration = (shift: Shift): number => {
     const start = parseISO(shift.startTime)
-    const end = parseISO(shift.endTime)
+    let end = parseISO(shift.endTime)
+    if (end < start) end = addDays(end, 1)
     return differenceInMinutes(end, start) / 60
   }
 
   const monthStats = useMemo(() => {
     if (view !== 'month' && view !== 'week') return {}
     return calculateMonthStats(
-        currentDate, 
-        employees, 
-        shifts, 
-        monthlyClosures, 
-        weeklyHoursOverrides
+        currentDate,
+        activeEmployees,
+        shifts,
+        monthlyClosures,
+        weeklyHoursOverrides,
+        balanceAdjustments
     )
-  }, [currentDate, employees, shifts, monthlyClosures, weeklyHoursOverrides, view])
+  }, [currentDate, activeEmployees, shifts, monthlyClosures, weeklyHoursOverrides, balanceAdjustments, view])
 
   // Calculate stats for Month View (Legacy/Week View support)
   const getEmployeeMonthStats = (emp: Employee, strictMonth: boolean = true) => {
@@ -1075,10 +1090,12 @@ export default function Shifts(): React.JSX.Element {
     const weeklyData = weeks.map(weekStart => {
         const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 })
         
-        const weekShifts = shifts.filter(s => 
-            s.employeeId === emp.id && 
-            parseISO(s.startTime) >= weekStart && 
-            parseISO(s.endTime) <= endOfDay(weekEnd)
+        // Bucket by shift start (consistent with balanceUtils' day/week bucketing) so a shift
+        // that crosses the week boundary isn't dropped from both weeks.
+        const weekShifts = shifts.filter(s =>
+            s.employeeId === emp.id &&
+            parseISO(s.startTime) >= weekStart &&
+            parseISO(s.startTime) <= endOfDay(weekEnd)
         )
         const worked = weekShifts.reduce((acc, s) => acc + getShiftDuration(s), 0)
         
@@ -1964,7 +1981,7 @@ export default function Shifts(): React.JSX.Element {
                       required
                     >
                       <option value={0} disabled>{t('selectEmployee') || 'Select Employee'}</option>
-                      {employees.map((emp) => (
+                      {activeEmployees.map((emp) => (
                         <option key={emp.id} value={emp.id}>
                           {emp.name}
                         </option>

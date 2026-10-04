@@ -1,3 +1,4 @@
+import { logPath, attachRendererLogging } from './logger' // first: captures errors from all later imports
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join, dirname, basename } from 'path'
 import fs from 'fs/promises'
@@ -53,6 +54,8 @@ function createWindow(): void {
       sandbox: false
     }
   })
+
+  attachRendererLogging(mainWindow.webContents)
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
@@ -308,6 +311,21 @@ app.whenReady().then(() => {
     ipcMain.handle('create-backup', () => createBackup())
     ipcMain.handle('get-backups', () => getBackups())
     ipcMain.handle('restore-backup', (_, filename) => restoreBackup(filename))
+    ipcMain.handle('export-db', async () => {
+      const date = new Date().toISOString().slice(0, 10)
+      const { filePath } = await dialog.showSaveDialog({
+        defaultPath: `horari-${date}.db`,
+        filters: [{ name: 'SQLite', extensions: ['db'] }]
+      })
+      if (!filePath) return { canceled: true }
+      await db.backup(filePath) // consistent snapshot, includes uncommitted WAL pages
+      // Log goes next to the DB with the same name, e.g. horari-2026-10-04.log
+      const logOut = filePath.replace(/\.db$/i, '') + '.log'
+      const read = (p: string) => fs.readFile(p, 'utf-8').catch(() => '')
+      await fs.writeFile(logOut, (await read(logPath + '.old')) + (await read(logPath)))
+      shell.showItemInFolder(filePath)
+      return { success: true, filePath }
+    })
 
     // Export
     ipcMain.handle('save-export', async (_, { data, filename }) => {

@@ -308,6 +308,17 @@ export default function Settings(): React.JSX.Element {
                          <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('recentBackups') || 'Recent Backups'}</h3>
                          <p className="text-xs text-slate-500 mt-1">{t('backupRetention') || 'System keeps only the last 3 backups.'}</p>
                     </div>
+                    <div className="flex gap-2">
+                    <button
+                        onClick={() => window.api.backup.exportDb().catch((error) => {
+                          console.error('DB export failed:', error)
+                          alert('Export failed')
+                        })}
+                        className="flex items-center px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-sm hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+                    >
+                        <Download className="w-4 h-4 mr-2" />
+                        {t('exportDb') || 'Export Database'}
+                    </button>
                     <button
                         onClick={handleBackupNow}
                         disabled={isBackingUp}
@@ -316,6 +327,7 @@ export default function Settings(): React.JSX.Element {
                         {isBackingUp ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
                         {t('backupNow') || 'Backup Now'}
                     </button>
+                    </div>
                 </div>
 
                 <div className="space-y-2">

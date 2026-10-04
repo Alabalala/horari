@@ -416,8 +416,10 @@ export default function EmployeeDetails(): React.JSX.Element {
     try {
       const monthShifts = (await window.api.shifts.get(Number(id), start, end)) as Shift[]
       const total = monthShifts.reduce((sum, shift) => {
-        const duration = differenceInMinutes(parseISO(shift.endTime), parseISO(shift.startTime)) / 60
-        return sum + duration
+        const shiftStart = parseISO(shift.startTime)
+        let shiftEnd = parseISO(shift.endTime)
+        if (shiftEnd < shiftStart) shiftEnd = addDays(shiftEnd, 1)
+        return sum + differenceInMinutes(shiftEnd, shiftStart) / 60
       }, 0)
       setTotalWorkedHours(total)
     } catch (error) {
@@ -442,8 +444,10 @@ export default function EmployeeDetails(): React.JSX.Element {
         const endW = endOfDay(addDays(currentWeekStart, 6)).toISOString()
         const weekShifts = await window.api.shifts.get(Number(id), startW, endW) as Shift[]
         const worked = weekShifts.reduce((sum, shift) => {
-            const duration = differenceInMinutes(parseISO(shift.endTime), parseISO(shift.startTime)) / 60
-            return sum + duration
+            const shiftStart = parseISO(shift.startTime)
+            let shiftEnd = parseISO(shift.endTime)
+            if (shiftEnd < shiftStart) shiftEnd = addDays(shiftEnd, 1)
+            return sum + differenceInMinutes(shiftEnd, shiftStart) / 60
         }, 0)
         setWeeklyWorked(worked)
     } catch (e) {
@@ -1404,7 +1408,10 @@ export default function EmployeeDetails(): React.JSX.Element {
                         </label>
                         <select
                             value={formData.absenceType || 'holiday'}
-                            onChange={(e) => setFormData({ ...formData, absenceType: e.target.value as any })}
+                            onChange={(e) => {
+                                const newType = e.target.value as any
+                                setFormData({ ...formData, absenceType: newType, isPaid: newType !== 'unpaid' })
+                            }}
                             className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
                         >
                             <option value="holiday">{t('holiday') || 'Holiday'}</option>
@@ -1818,7 +1825,9 @@ export default function EmployeeDetails(): React.JSX.Element {
                                             {t('weekOf') || 'Week of'} {format(parseISO(w.weekStart), 'MMM d', { locale: dateLocale })}
                                         </span>
                                         <span className="text-slate-500 dark:text-slate-500 text-xs">
-                                            {t('contract') || 'contract'} {w.target.toFixed(1)}h · {t('worked') || 'worked'} {w.actual.toFixed(1)}h
+                                            {t('contract') || 'contract'} {w.target.toFixed(1)}h · {t('worked') || 'worked'} {w.worked.toFixed(1)}h
+                                            {w.paidAbsence > 0 && <> · {t('paidAbsence') || 'paid absence'} {w.paidAbsence.toFixed(1)}h</>}
+                                            {w.unpaidAbsence > 0 && <> · {t('unpaidAbsence') || 'unpaid absence'} {w.unpaidAbsence.toFixed(1)}h</>}
                                         </span>
                                         <span className={cn("font-semibold shrink-0", w.diff >= 0 ? "text-emerald-600" : "text-red-600")}>
                                             {w.diff > 0 ? '+' : ''}{w.diff.toFixed(1)}h
@@ -1832,7 +1841,9 @@ export default function EmployeeDetails(): React.JSX.Element {
                                                         {format(parseISO(d.date), 'EEE d', { locale: dateLocale })}
                                                     </span>
                                                     <span className="text-slate-400 dark:text-slate-500">
-                                                        {t('contract') || 'contract'} {d.target.toFixed(1)}h · {t('worked') || 'worked'} {d.actual.toFixed(1)}h
+                                                        {t('contract') || 'contract'} {d.target.toFixed(1)}h · {t('worked') || 'worked'} {d.worked.toFixed(1)}h
+                                                        {d.paidAbsence > 0 && <> · {t('paidAbsence') || 'paid absence'} {d.paidAbsence.toFixed(1)}h</>}
+                                                        {d.unpaidAbsence > 0 && <> · {t('unpaidAbsence') || 'unpaid absence'} {d.unpaidAbsence.toFixed(1)}h</>}
                                                     </span>
                                                     <span className={cn("font-medium shrink-0", d.diff >= 0 ? "text-emerald-600" : "text-red-600")}>
                                                         {d.diff > 0 ? '+' : ''}{d.diff.toFixed(1)}h
@@ -1852,6 +1863,22 @@ export default function EmployeeDetails(): React.JSX.Element {
                             <span className="text-slate-600 dark:text-slate-400">{t('monthContract') || 'Month contract hours'}</span>
                             <span className="font-medium text-slate-900 dark:text-white">{breakdown.currentMonth.target.toFixed(1)}h</span>
                         </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-slate-600 dark:text-slate-400">{t('worked') || 'Worked'}</span>
+                            <span className="font-medium text-slate-900 dark:text-white">{breakdown.currentMonth.worked.toFixed(1)}h</span>
+                        </div>
+                        {breakdown.currentMonth.paidAbsence > 0 && (
+                            <div className="flex items-center justify-between">
+                                <span className="text-slate-600 dark:text-slate-400">{t('paidAbsence') || 'Paid Absence'}</span>
+                                <span className="font-medium text-slate-900 dark:text-white">{breakdown.currentMonth.paidAbsence.toFixed(1)}h</span>
+                            </div>
+                        )}
+                        {breakdown.currentMonth.unpaidAbsence > 0 && (
+                            <div className="flex items-center justify-between">
+                                <span className="text-slate-600 dark:text-slate-400">{t('unpaidAbsence') || 'Unpaid Absence'}</span>
+                                <span className="font-medium text-slate-900 dark:text-white">{breakdown.currentMonth.unpaidAbsence.toFixed(1)}h</span>
+                            </div>
+                        )}
                         <div className="flex items-center justify-between">
                             <span className="text-slate-600 dark:text-slate-400">{t('monthWorked') || 'Month actual hours'}</span>
                             <span className="font-medium text-slate-900 dark:text-white">{breakdown.currentMonth.actual.toFixed(1)}h</span>

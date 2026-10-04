@@ -60,7 +60,8 @@ const api = {
   backup: {
     create: () => ipcRenderer.invoke('create-backup'),
     list: () => ipcRenderer.invoke('get-backups'),
-    restore: (filename) => ipcRenderer.invoke('restore-backup', filename)
+    restore: (filename) => ipcRenderer.invoke('restore-backup', filename),
+    exportDb: () => ipcRenderer.invoke('export-db')
   }
 }
 

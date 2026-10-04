@@ -163,6 +163,7 @@ export default function ShiftTimelineItem({
         getShiftStyle(),
         isResizing && "z-20 ring-2 ring-blue-400 opacity-90",
         readOnly && "cursor-default border-none",
+        shift.type === 'absence' && "bg-stripes",
         className
       )}
       style={{ left: `${left}%`, width: `${width}%` }}
@@ -190,7 +191,12 @@ export default function ShiftTimelineItem({
         </div>
       )}
 
-      <span className={cn("px-1", !readOnly && "truncate px-2")}>
+      <span className={cn("px-1 flex items-center gap-1", !readOnly && "truncate px-2")}>
+        {shift.type === 'absence' && (
+          <span className="shrink-0 rounded-sm bg-black/25 px-1 text-[9px] font-semibold uppercase tracking-wide no-underline">
+            {t('absence')}
+          </span>
+        )}
         {shift.type === 'absence' && shift.absenceType === 'unpaid' ? (
              // For unpaid, we might want to show text clearly despite strikethrough
              <span className="no-underline">{formatDisplayTime(currentStartHour)} - {formatDisplayTime(currentEndHour)}</span>

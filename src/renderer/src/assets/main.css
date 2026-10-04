@@ -17,6 +17,16 @@ body {
   background-color: transparent;
 }
 
+.bg-stripes {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.18) 0px,
+    rgba(255, 255, 255, 0.18) 4px,
+    transparent 4px,
+    transparent 9px
+  );
+}
+
 
 .action a {
   cursor: pointer;

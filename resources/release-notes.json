@@ -1,5 +1,29 @@
 [
   {
+    "version": "1.0.10",
+    "date": "2026-10-04",
+    "notes": {
+      "en": [
+        "Settings: added an 'Export Database' button that saves your data and an error log, so you can send them to support.",
+        "The app now keeps an error log to help diagnose problems.",
+        "Fixed hours for overnight shifts (ending after midnight) being counted incorrectly.",
+        "Shifts: balances in Week view now match the employee page, including balance adjustments.",
+        "Shifts: inactive employees no longer appear in the roster.",
+        "Absences are now clearly marked in the calendar, and choosing 'unpaid' automatically marks them as unpaid.",
+        "Balance Breakdown: now shows worked hours, paid absence and unpaid absence separately."
+      ],
+      "es": [
+        "Ajustes: añadido un botón 'Exportar base de datos' que guarda tus datos y un registro de errores para que puedas enviarlos a soporte.",
+        "La aplicación ahora guarda un registro de errores para ayudar a diagnosticar problemas.",
+        "Corregido el cálculo de horas en turnos nocturnos (que terminan después de medianoche).",
+        "Turnos: los saldos en la vista semanal ahora coinciden con la ficha del empleado, incluidos los ajustes de saldo.",
+        "Turnos: los empleados inactivos ya no aparecen en el cuadrante.",
+        "Las ausencias ahora se distinguen claramente en el calendario, y al elegir 'no remunerado' se marcan automáticamente como no remuneradas.",
+        "Desglose del saldo: ahora muestra por separado las horas trabajadas, las ausencias remuneradas y las no remuneradas."
+      ]
+    }
+  },
+  {
     "version": "1.0.9",
     "date": "2026-08-17",
     "notes": {

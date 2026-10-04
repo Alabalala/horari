@@ -125,6 +125,9 @@ export interface WeekBreakdown {
   weekStart: string
   days: DayBreakdown[]
   target: number
+  worked: number
+  paidAbsence: number
+  unpaidAbsence: number
   actual: number
   diff: number
 }
@@ -144,6 +147,9 @@ export interface EmployeeBreakdown {
     monthId: string
     weeks: WeekBreakdown[]
     target: number
+    worked: number
+    paidAbsence: number
+    unpaidAbsence: number
     actual: number
     adjustments: number
     diff: number
@@ -264,17 +270,26 @@ export const calculateEmployeeBreakdown = (
 
   const weeks: WeekBreakdown[] = Array.from(weeksMap.entries()).map(([weekStart, days]) => {
     const target = days.reduce((s, d) => s + d.target, 0)
+    const worked = days.reduce((s, d) => s + d.worked, 0)
+    const paidAbsence = days.reduce((s, d) => s + d.paidAbsence, 0)
+    const unpaidAbsence = days.reduce((s, d) => s + d.unpaidAbsence, 0)
     const actual = days.reduce((s, d) => s + d.actual, 0)
     return {
       weekStart,
       days,
       target: Number(target.toFixed(2)),
+      worked: Number(worked.toFixed(2)),
+      paidAbsence: Number(paidAbsence.toFixed(2)),
+      unpaidAbsence: Number(unpaidAbsence.toFixed(2)),
       actual: Number(actual.toFixed(2)),
       diff: Number((actual - target).toFixed(2))
     }
   })
 
   const currentTarget = weeks.reduce((s, w) => s + w.target, 0)
+  const currentWorked = weeks.reduce((s, w) => s + w.worked, 0)
+  const currentPaidAbsence = weeks.reduce((s, w) => s + w.paidAbsence, 0)
+  const currentUnpaidAbsence = weeks.reduce((s, w) => s + w.unpaidAbsence, 0)
   const currentActual = weeks.reduce((s, w) => s + w.actual, 0)
   const currentAdjustments = balanceAdjustments
     .filter(a => a.employeeId === employee.id && a.monthId === monthId)
@@ -289,6 +304,9 @@ export const calculateEmployeeBreakdown = (
       monthId,
       weeks,
       target: Number(currentTarget.toFixed(2)),
+      worked: Number(currentWorked.toFixed(2)),
+      paidAbsence: Number(currentPaidAbsence.toFixed(2)),
+      unpaidAbsence: Number(currentUnpaidAbsence.toFixed(2)),
       actual: Number(currentActual.toFixed(2)),
       adjustments: Number(currentAdjustments.toFixed(2)),
       diff: Number(currentDiff.toFixed(2))

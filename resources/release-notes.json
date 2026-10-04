@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.0.11",
+    "date": "2026-10-04",
+    "notes": {
+      "en": [
+        "Fixed a crash on startup introduced in version 1.0.10."
+      ],
+      "es": [
+        "Corregido un error al iniciar la aplicación introducido en la versión 1.0.10."
+      ]
+    }
+  },
+  {
     "version": "1.0.10",
     "date": "2026-10-04",
     "notes": {
